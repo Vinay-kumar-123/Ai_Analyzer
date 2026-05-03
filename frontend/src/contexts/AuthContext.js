@@ -89,7 +89,12 @@ export function AuthProvider({ children }) {
       setUser(null);
     }
   };
-
+  const updateCredits = (newCredits) => {
+    setUser((prev) => ({
+      ...prev,
+      credits: newCredits,
+    }));
+  };
   const logout = async () => {
     try {
       await api.post("/api/auth/logout");
@@ -108,6 +113,7 @@ export function AuthProvider({ children }) {
         register,
         login,
         logout,
+        updateCredits,
         refreshSession,
         fetchCurrentUser,
       }}

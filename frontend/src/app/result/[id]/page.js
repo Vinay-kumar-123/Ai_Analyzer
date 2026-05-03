@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import jsPDF from "jspdf";
 import ActionEngine from "@/components/ActionEngine";
+import Navbar from "@/components/Navbar";
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
@@ -11,11 +12,11 @@ export default function ResultPage() {
   const { id } = useParams();
 
   const [data, setData] = useState(null);
-  const [activeTab, setActiveTab] = useState("summary");
+  const [activeTab, setActiveTab] = useState("notes");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // ---------------- REALTIME POLLING ----------------
+  // ---------------- FETCH ----------------
   useEffect(() => {
     if (!id) return;
 
@@ -31,15 +32,12 @@ export default function ResultPage() {
 
         if (!json.success) return;
 
-        const analysis = json.data;
+        setData(json.data);
 
-        setData(analysis);
-
-        if (analysis.status === "completed" || analysis.status === "failed") {
+        if (json.data.status === "completed" || json.data.status === "failed") {
           clearInterval(interval);
         }
       } catch (err) {
-        console.error(err);
         setError("Failed to load analysis");
       } finally {
         setLoading(false);
@@ -52,47 +50,32 @@ export default function ResultPage() {
     return () => clearInterval(interval);
   }, [id]);
 
-  // ---------------- DYNAMIC TABS ----------------
+  // ---------------- TABS ----------------
   const buildTabs = (data) => {
-    const tabs = ["summary", "keypoints", "notes"];
+    const tabs = ["notes", "summary", "keypoints"];
 
-    // ✅ Always
+    if (data.quickRevision?.length) tabs.push("revision");
+
     if (data.actionSteps?.length) tabs.push("actions");
 
-    // ✅ TECH ONLY
     if (data.contentType === "tech") {
       if (data.actionEngine?.length) tabs.push("engine");
       if (data.project?.title) tabs.push("project");
     }
 
-    // ✅ ACADEMIC / EXAM
-    if (data.contentType === "academic" || data.contentType === "exam") {
-      if (data.learningPath?.length) tabs.push("learning");
-    }
+    if (data.learningPath?.length) tabs.push("learning");
 
-    // ✅ Execution plan (any type)
     if (data.executionPlan?.length) tabs.push("plan");
 
-    // ✅ Always last
-    tabs.push("roadmap");
-    tabs.push("qa");
+    tabs.push("roadmap", "qa");
 
     return tabs;
   };
 
   const TABS = data ? buildTabs(data) : [];
-  useEffect(() => {
-    if (data) {
-      const tabs = buildTabs(data);
-
-      if (!tabs.includes(activeTab)) {
-        setActiveTab(tabs[0]); // 🔥 auto fix
-      }
-    }
-  }, [data]);
 
   // ---------------- PDF ----------------
-  const downloadPDF = () => {
+  const downloadPDF = (type = "full") => {
     if (!data) return;
 
     const doc = new jsPDF();
@@ -101,187 +84,244 @@ export default function ResultPage() {
     const add = (title, content) => {
       if (!content) return;
 
-      doc.setFontSize(12);
+      doc.setFontSize(14);
       doc.text(title, 10, y);
       y += 6;
 
       const lines = doc.splitTextToSize(content.toString(), 180);
+      doc.setFontSize(11);
       doc.text(lines, 10, y);
 
-      y += lines.length * 6 + 6;
+      y += lines.length * 6 + 8;
     };
 
-    add("Summary", data.summary);
-    add("Notes", data.notes);
-    add("Outcome", data.outcome);
-    add("Action Steps", data.actionSteps?.join("\n"));
-    add("Roadmap", data.roadmap?.join("\n"));
+    // 🔥 SWITCH BASED DOWNLOAD
+    switch (type) {
+      case "summary":
+        add("Summary", data.summary);
+        break;
 
-    doc.save("analysis.pdf");
+      case "notes":
+        add("Notes", data.notes);
+        break;
+
+      case "roadmap":
+        add("Roadmap", data.roadmap?.join("\n"));
+        break;
+
+      case "qa":
+        add(
+          "Questions & Answers",
+          data.qa?.map((q) => `Q: ${q.question}\nA: ${q.answer}`).join("\n\n"),
+        );
+        break;
+
+      case "actions":
+        add("Action Steps", data.actionSteps?.join("\n"));
+        break;
+
+      case "full":
+      default:
+        add("Summary", data.summary);
+        add("Notes", data.notes);
+        add("Roadmap", data.roadmap?.join("\n"));
+        break;
+    }
+
+    doc.save(`${type}-analysis.pdf`);
   };
 
-  // ---------------- UI STATES ----------------
-
+  // ---------------- STATES ----------------
   if (loading) {
     return (
       <div className="p-6 text-center">
-        <h2 className="text-xl font-semibold animate-pulse">
-          AI is analyzing your content...
+        <h2 className="text-xl font-bold animate-pulse text-blue-600">
+          🤖 AI is teaching your content...
         </h2>
-        <p className="text-gray-500 mt-2">This may take a few seconds ⏳</p>
       </div>
     );
   }
 
-  if (error) {
-    return <p className="p-6 text-red-500">{error}</p>;
-  }
-
+  if (error) return <p className="p-6 text-red-500">{error}</p>;
   if (!data) return null;
 
   if (data.status === "failed") {
-    return (
-      <div className="p-6 text-center text-red-500">
-        ❌ Analysis failed: {data.error}
-      </div>
-    );
-  }
-
-  if (data.status !== "completed") {
-    return (
-      <div className="p-6 text-center">
-        <h2 className="text-xl font-semibold">Processing...</h2>
-        <p className="text-gray-500 mt-2">
-          Please wait while AI generates results...
-        </p>
-      </div>
-    );
+    return <div className="p-6 text-red-500 text-center">❌ {data.error}</div>;
   }
 
   // ---------------- UI ----------------
-
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
+      <Navbar />
+
+      {/* HERO */}
+      <div className="bg-gradient-to-r from-blue-500 to-purple-500 text-white p-5 rounded-xl">
+        <h1 className="text-2xl font-bold">AI Teacher Mode 🚀</h1>
+        <p className="text-sm">
+          No need to watch video again — everything explained here
+        </p>
+      </div>
+
       {/* HEADER */}
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Analysis Result</h1>
-
-        <button
-          onClick={downloadPDF}
-          className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-        >
-          Download PDF
-        </button>
+        <h2 className="text-xl font-bold">Analysis Result</h2>
       </div>
 
       {/* TABS */}
-      <div className="flex gap-2 overflow-x-auto pb-2">
+      <div className="flex gap-2 overflow-x-auto">
         {TABS.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-3 py-1 rounded capitalize whitespace-nowrap ${
-              activeTab === tab
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 hover:bg-gray-300"
+            className={`px-3 py-1 rounded ${
+              activeTab === tab ? "bg-blue-600 text-white" : "bg-gray-200"
             }`}
           >
-            {tab === "keypoints"
-              ? "Key Points"
-              : tab === "actions"
-                ? "Action Steps"
-                : tab}
+            {tab}
           </button>
         ))}
       </div>
 
       {/* CONTENT */}
-      <div className="bg-white p-5 rounded-xl shadow space-y-4">
-        {activeTab === "summary" && <p>{data.summary}</p>}
-
+      <div className="bg-white p-5 rounded-xl shadow space-y-6">
+        {/* NOTES (🔥 CORE) */}
         {activeTab === "notes" && (
-          <p className="whitespace-pre-line">{data.notes}</p>
-        )}
-
-        {activeTab === "keypoints" &&
-          (data.keyPoints?.length ? (
-            <ul className="list-disc ml-5 space-y-1">
-              {data.keyPoints.map((p, i) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-gray-400">No key points available</p>
-          ))}
-
-        {activeTab === "actions" && (
-          <ul className="list-disc ml-5">
-            {data.actionSteps?.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </ul>
-        )}
-
-        {activeTab === "engine" &&
-          (data.contentType || "general") === "tech" && (
-            <ActionEngine steps={data.actionEngine} />
-          )}
-
-        {activeTab === "learning" && (
-          <ul className="list-disc ml-5">
-            {data.learningPath?.map((l, i) => (
-              <li key={i}>{l}</li>
-            ))}
-          </ul>
-        )}
-
-        {activeTab === "project" &&
-          (data.contentType || "general") === "tech" && (
+          <div className="space-y-6">
             <div>
-              <h2 className="text-xl font-bold">{data.project.title}</h2>
-
-              <p className="font-semibold mt-2">Features:</p>
-              <ul className="list-disc ml-5">
-                {data.project.features?.map((f, i) => (
-                  <li key={i}>{f}</li>
-                ))}
-              </ul>
-              <p className="font-semibold mt-3">Tech Stack:</p>
-              <ul className="list-disc ml-5">
-                {data.project.techStack?.map((t, i) => (
-                  <li key={i}>{t}</li>
-                ))}
-              </ul>
+              <h3 className="text-xl font-bold">📘 Deep Explanation</h3>
+              <p className="whitespace-pre-line text-gray-700">{data.notes}</p>
             </div>
-          )}
 
-        {activeTab === "plan" && (
-          <div>
-            {data.executionPlan.map((p) => (
-              <div>
-                <strong>{p.day}</strong>
-                <p>{p.task}</p>
+            {/* WHY */}
+            {data.whyItMatters && (
+              <div className="bg-blue-50 p-4 rounded">
+                <h4 className="font-semibold">🔥 Why it Matters</h4>
+                <ul className="list-disc ml-5">
+                  {data.whyItMatters.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
               </div>
-            ))}
+            )}
+
+            {/* CONFUSION */}
+            {data.confusion && (
+              <div>
+                <h4 className="font-semibold">🧠 Hard Concepts</h4>
+                {data.confusion.map((c, i) => (
+                  <div key={i} className="border p-3 rounded mb-2">
+                    <p className="font-bold">{c.concept}</p>
+                    <p>{c.simpleExplanation}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => downloadPDF("notes")}
+              className="text-sm bg-green-500 text-white px-2 py-1 rounded"
+            >
+              Download
+            </button>
           </div>
         )}
 
-        {activeTab === "roadmap" && (
+        {/* SUMMARY */}
+        {activeTab === "summary" && (
+          <div className="bg-yellow-50 p-4 rounded">
+            <h3 className="font-bold">⚡ Summary</h3>
+            <p>{data.summary}</p>
+            <button
+              onClick={() => downloadPDF("summary")}
+              className="text-sm bg-green-500 text-white px-2 py-1 rounded"
+            >
+              Download
+            </button>
+          </div>
+        )}
+
+        {/* REVISION */}
+        {activeTab === "revision" && (
           <ul className="list-disc ml-5">
-            {data.roadmap?.map((r, i) => (
+            {data.quickRevision?.map((r, i) => (
               <li key={i}>{r}</li>
             ))}
           </ul>
         )}
 
-        {activeTab === "qa" && (
-          <div className="space-y-3">
-            {data.qa?.map((q, i) => (
-              <div key={i}>
-                <p className="font-semibold">Q: {q.question}</p>
-                <p>A: {q.answer}</p>
-              </div>
+        {/* KEYPOINTS */}
+        {activeTab === "keypoints" && (
+          <ul className="list-disc ml-5">
+            {data.keyPoints?.map((k, i) => (
+              <li key={i}>{k}</li>
             ))}
+          </ul>
+        )}
+
+        {/* ACTIONS */}
+        {activeTab === "actions" && (
+          <div>
+            <ul className="list-disc ml-5">
+              {data.actionSteps?.map((a, i) => (
+                <li key={i}>{a}</li>
+              ))}
+            </ul>
+            <button
+              onClick={() => downloadPDF("actions")}
+              className="bg-green-500 text-white px-3 py-1 rounded"
+            >
+              Download Actions
+            </button>
+          </div>
+        )}
+
+        {/* ENGINE */}
+        {activeTab === "engine" && <ActionEngine steps={data.actionEngine} />}
+
+        {/* PROJECT */}
+        {activeTab === "project" && (
+          <div>
+            <h3 className="text-xl font-bold">{data.project.title}</h3>
+
+            <ul className="list-disc ml-5">
+              {data.project.features?.map((f, i) => (
+                <li key={i}>{f}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* ROADMAP */}
+        {activeTab === "roadmap" && (
+          <div>
+            <ul className="list-disc ml-5">
+              {data.roadmap?.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+            <button
+              onClick={() => downloadPDF("roadmap")}
+              className="bg-green-500 text-white px-3 py-1 rounded"
+            >
+              Download Roadmap
+            </button>
+          </div>
+        )}
+
+        {/* QA */}
+        {activeTab === "qa" && (
+          <div>
+            {data.qa?.map((q, i) => (
+              <details key={i} className="border p-3 rounded mb-2">
+                <summary className="font-semibold">{q.question}</summary>
+                <p>{q.answer}</p>
+              </details>
+            ))}
+            <button
+              onClick={() => downloadPDF("qa")}
+              className="bg-green-500 text-white px-3 py-1 rounded"
+            >
+              Download QA
+            </button>
           </div>
         )}
       </div>

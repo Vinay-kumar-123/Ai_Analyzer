@@ -1,7 +1,7 @@
-import mongoose from "mongoose";
 import Joi from "joi";
 import crypto from "crypto";
-
+import { getVideoMeta } from "../utils/youtubeMeta.js";
+import { calculateCredits } from "../utils/creditCalculator.js";
 import User from "../models/User.js";
 import Analysis from "../models/Analysis.js";
 import { analysisQueue } from "../queues/analysis.queue.js";
@@ -14,16 +14,11 @@ const schema = Joi.object({
   goal: Joi.string().valid("student", "developer", "job_seeker").required(),
 });
 
-// ---------------- HELPERS ----------------
-
-const estimateCreditsFromYoutube = () => 1;
-
-// ---------------- CONTROLLER ----------------
+// =======================================================
+// 🚀 CREATE ANALYSIS (FINAL)
+// =======================================================
 
 export const createYoutubeAnalysis = async (req, res, next) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     const userId = req.user.id;
 
@@ -38,20 +33,19 @@ export const createYoutubeAnalysis = async (req, res, next) => {
 
     const { youtubeUrl, language, goal } = value;
 
-    // ✅ 2. GENERATE HASH (CRITICAL)
+    // ✅ 2. GENERATE HASH (DEDUP)
     const inputHash = crypto
       .createHash("sha256")
       .update(`${youtubeUrl}-${goal}-${language}`)
       .digest("hex");
 
-    // ✅ 3. CHECK DUPLICATE (COST SAVING)
+    // ✅ 3. CHECK EXISTING (CACHE HIT)
     const existing = await Analysis.findOne({
       user: userId,
       inputHash,
     });
 
     if (existing) {
-      await session.abortTransaction();
       return res.status(200).json({
         success: true,
         message: "Using cached result",
@@ -59,41 +53,56 @@ export const createYoutubeAnalysis = async (req, res, next) => {
       });
     }
 
-    // ✅ 4. USER FETCH
-    const user = await User.findById(userId).session(session);
+    // ✅ 4. FETCH USER
+    const user = await User.findById(userId);
 
     if (!user) {
-      throw new Error("User not found");
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
-    // ✅ 5. CREDIT CHECK
-    const requiredCredits = estimateCreditsFromYoutube();
+    // ✅ 5. GET VIDEO META (CRITICAL)
+    const video = await getVideoMeta(youtubeUrl);
 
+    if (!video || !video.duration) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to fetch video details",
+      });
+    }
+
+    // ✅ 6. CALCULATE CREDITS (REAL LOGIC)
+    const requiredCredits = calculateCredits(video.duration);
+
+    // ✅ 7. CREDIT CHECK (FINAL AUTHORITY)
     if (user.credits < requiredCredits) {
-      throw new Error("Insufficient credits");
+      return res.status(400).json({
+        success: false,
+        message: `You have ${user.credits} credits but this video requires ${requiredCredits} credits`,
+        requiredCredits,
+        userCredits: user.credits,
+      });
     }
 
-    // ✅ 6. CREATE ANALYSIS (QUEUED)
-    const [analysis] = await Analysis.create(
-      [
-        {
-          user: userId,
-          youtubeUrl,
-          language,
-          goal,
-          inputHash, // 🔥 FIXED
-          status: "queued",
-          creditsUsed: requiredCredits,
-          videoTitle: "Queued for processing",
-        },
-      ],
-      { session },
-    );
+    // ✅ 8. CREATE ANALYSIS
+    const analysis = await Analysis.create({
+      user: userId,
+      youtubeUrl,
+      language,
+      goal,
+      inputHash,
+      status: "queued",
+      creditsUsed: requiredCredits,
+      videoTitle: video.title,
+      thumbnail: video.thumbnail,
+      duration: video.duration,
+    });
 
-    // ✅ 7. COMMIT TRANSACTION
-    await session.commitTransaction();
     console.log("🚀 Adding job to queue:", analysis._id);
-    // ✅ 8. ADD TO QUEUE
+
+    // ✅ 9. ADD JOB (OPTIMIZED)
     await analysisQueue.add(
       "youtube-analysis",
       {
@@ -105,26 +114,83 @@ export const createYoutubeAnalysis = async (req, res, next) => {
         credits: requiredCredits,
       },
       {
-        jobId: analysis._id.toString(), // 🔥 duplicate prevent
-        attempts: 3, // 🔥 retry
+        jobId: analysis._id.toString(), // prevent duplicate jobs
+        attempts: 3,
         backoff: {
           type: "exponential",
           delay: 2000,
         },
-        removeOnComplete: true, // 🔥 memory cleanup
-      },
+        removeOnComplete: true,
+      }
     );
-    console.log("🚀 Adding job to queue:", analysis._id);
-    // ✅ 9. RESPONSE
+
+    // ✅ 10. RESPONSE
     return res.status(202).json({
       success: true,
       message: "Analysis started successfully",
       analysisId: analysis._id,
+      requiredCredits,
     });
+
   } catch (error) {
-    await session.abortTransaction();
+    console.error("❌ Create Analysis Error:", error.message);
     next(error);
-  } finally {
-    session.endSession();
+  }
+};
+
+// =======================================================
+// 🔍 PREVIEW ANALYSIS (SMART UX)
+// =======================================================
+
+export const previewAnalysis = async (req, res) => {
+  try {
+    const { url } = req.query;
+
+    if (!url) {
+      return res.status(400).json({
+        success: false,
+        message: "URL is required",
+      });
+    }
+
+    // ✅ 1. GET VIDEO META
+    const video = await getVideoMeta(url);
+
+    if (!video || !video.duration) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid YouTube URL",
+      });
+    }
+
+    // ✅ 2. CALCULATE REQUIRED CREDITS
+    const requiredCredits = calculateCredits(video.duration);
+
+    // ✅ 3. GET USER
+    const user = await User.findById(req.user.id);
+
+    return res.status(200).json({
+      success: true,
+
+      // 🔥 CORE DATA
+      requiredCredits,
+      userCredits: user?.credits || 0,
+      canAnalyze: (user?.credits || 0) >= requiredCredits,
+
+      // 🔥 VIDEO INFO
+      video: {
+        title: video.title,
+        duration: video.duration,
+        thumbnail: video.thumbnail,
+      },
+    });
+
+  } catch (err) {
+    console.error("❌ Preview Error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      message: "Preview failed",
+    });
   }
 };

@@ -17,100 +17,103 @@ const getTranscript = async (youtubeUrl) => {
 
     console.log("✅ Transcript fetched");
     return transcript.map((t) => t.text).join(" ");
-  } catch (err) {
+  } catch {
     throw new Error("Failed to fetch transcript");
   }
 };
 
-// ---------------- SMART CHUNK ----------------
-const chunkText = (text, size = 2000) => {
-  const sentences = text.split(". ");
+// ---------------- CHUNK ----------------
+const chunkText = (text, size = 8000) => {
   const chunks = [];
-  let current = "";
+  for (let i = 0; i < text.length; i += size) {
+    chunks.push(text.slice(i, i + size));
+  }
+  return chunks;
+};
 
-  for (let s of sentences) {
-    if ((current + s).length > size) {
-      chunks.push(current);
-      current = s;
-    } else {
-      current += " " + s;
+// ---------------- SAFE PARSE ----------------
+const safeParse = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    try {
+      const cleaned = text
+        .replace(/```json|```/g, "")
+        .replace(/\n/g, " ")
+        .trim();
+      return JSON.parse(cleaned);
+    } catch {
+      return null;
     }
   }
-
-  if (current) chunks.push(current);
-
-  // 🔥 limit chunks (cost control)
-  return chunks.slice(0, 5);
 };
 
 // ---------------- PROMPT ----------------
-
 const buildPrompt = (chunk, goal, language) => `
-You are a senior mentor, technical architect, teacher, and execution coach.
+Return ONLY valid JSON.
 
-Your purpose:
-Analyze → Extract → Guide → Help user execute
-
------------------------------------
-CRITICAL RULE (VERY IMPORTANT)
------------------------------------
-
-Summary, KeyPoints, Notes MUST be derived ONLY from the transcript.
-
-- Do NOT add external knowledge
-- Do NOT assume anything
-- Do NOT expand beyond what is spoken
-- Only rephrase for clarity
-
-If something is not mentioned → DO NOT include it
+You are a senior AI teacher, mentor, and execution coach.
 
 -----------------------------------
-AI EXTENSION RULE (IMPORTANT)
+YOUR GOAL
 -----------------------------------
 
-The following MUST be generated using your reasoning (NOT limited to transcript):
-
-- actionSteps
-- actionEngine
-- roadmap
-- executionPlan
-- project
-- outcome
+User should NOT need to watch the video again.
 
 -----------------------------------
-CONTENT TYPE DETECTION (STRICT)
+CORE TASK
 -----------------------------------
 
-Detect ONE type:
+1. Extract from transcript
+2. Explain clearly
+3. Fill missing gaps
+4. Improve weak explanations
+5. Add examples + real-world clarity
+
+-----------------------------------
+IMPORTANT RULES
+-----------------------------------
+
+1. Summary, KeyPoints MUST come from transcript only
+2. Notes CAN expand using your knowledge for clarity
+3. Avoid generic explanations
+4. Avoid repetition
+5. Be practical and structured
+
+-----------------------------------
+CONTENT TYPE DETECTION
+-----------------------------------
+
+Detect ONE:
 
 tech | academic | exam | interview | general
 
-Rules:
-
-- If transcript contains:
-  programming, coding, Node.js, JavaScript, React, API, backend, frontend
-  → contentType = "tech"
-
-- If transcript contains:
-  theory, concepts, study explanation
-  → contentType = "academic"
-
-- If interview preparation → "interview"
-
-- If unsure BUT programming exists → ALWAYS choose "tech"
+RULES:
+- Coding / programming → tech
+- Theory / study → academic
+- Interview prep → interview
 
 -----------------------------------
-INPUT
+GOAL ADAPTATION
 -----------------------------------
 
-Goal: ${goal}
-Language: ${language}
-
-Transcript:
-${chunk}
+- student → simple explanation
+- developer → code + architecture
+- job_seeker → interview + practical
 
 -----------------------------------
-OUTPUT FORMAT (STRICT JSON ONLY)
+TECH MODE (VERY IMPORTANT)
+-----------------------------------
+
+If contentType = "tech":
+
+- MUST generate:
+  ✔ actionEngine (step-by-step execution)
+  ✔ project (real buildable)
+  ✔ executionPlan
+
+-----------------------------------
+OUTPUT FORMAT (STRICT JSON)
 -----------------------------------
 
 {
@@ -172,92 +175,45 @@ OUTPUT FORMAT (STRICT JSON ONLY)
 }
 
 -----------------------------------
-STRICT RULES
+INPUT
 -----------------------------------
 
-1. ALWAYS include:
-summary, keyPoints, notes, actionSteps, roadmap, qa, outcome
+Goal: ${goal}
+Language: ${language}
 
-2. TECH CONTENT (VERY IMPORTANT):
-If contentType = "tech":
-
-- MUST generate:
-  ✔ actionEngine (step-by-step execution)
-  ✔ project (real buildable project)
-  ✔ executionPlan (day-wise plan)
-
-- DO NOT leave them empty
-
-3. NON-TECH CONTENT:
-
-- actionEngine = []
-- project = empty object
-
-4. GOAL ADAPTATION:
-
-- student → simple explanation
-- developer → code + architecture + implementation
-- job_seeker → interview + resume points
-
-5. QUALITY RULES:
-
-- Avoid generic points
-- Avoid repetition
-- Be practical and actionable
-- Keep output structured
-
-6. OUTPUT:
-
-- Return ONLY JSON
-- No markdown
-- No explanation
+Transcript:
+${chunk}
 `;
-// ---------------- SAFE PARSE ----------------
-const safeParse = (text) => {
-  try {
-    return JSON.parse(text);
-  } catch {
-    try {
-      const cleaned = text
-        .replace(/```json|```/g, "")
-        .replace(/\n/g, " ")
-        .trim();
-
-      return JSON.parse(cleaned);
-    } catch {
-      return null;
-    }
-  }
-};
 
 // ---------------- PROCESS CHUNK ----------------
 const processChunk = async (chunk, goal, language) => {
   try {
     const res = await openai.chat.completions.create({
       model: "gpt-4o-mini",
+      temperature: 0.3,
       messages: [
         {
           role: "system",
-          content: "You must return ONLY valid JSON. No text outside JSON.",
+          content: "Return ONLY valid JSON",
         },
         {
           role: "user",
           content: buildPrompt(chunk, goal, language),
         },
       ],
-      temperature: 0.3,
     });
 
     return safeParse(res.choices[0].message.content);
   } catch (err) {
-    console.error("AI chunk error:", err.message);
+    console.error("Chunk error:", err.message);
     return null;
   }
 };
 
-// ---------------- MERGE ----------------
+// ---------------- SMART MERGE ----------------
 const mergeResults = (results) => {
   const typeCount = {};
+
   results.forEach((r) => {
     if (!r?.contentType) return;
     typeCount[r.contentType] = (typeCount[r.contentType] || 0) + 1;
@@ -267,37 +223,93 @@ const mergeResults = (results) => {
     Object.entries(typeCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "general";
   return {
     contentType,
-
-    summary: results.map((r) => r?.summary).join(" "),
-    keyPoints: [...new Set(results.flatMap((r) => r?.keyPoints || []))],
-    notes: results.map((r) => r?.notes).join("\n\n"),
-
-    actionSteps: [...new Set(results.flatMap((r) => r?.actionSteps || []))],
-    actionEngine: results.flatMap((r) => r?.actionEngine || []),
-
-    roadmap: results.flatMap((r) => r?.roadmap || []),
-    qa: results.flatMap((r) => r?.qa || []),
-
-    learningPath: results.flatMap((r) => r?.learningPath || []),
-
-    project: results.find((r) => r?.project?.title)?.project || {
-      title: "",
-      features: [],
-      techStack: [],
-      folderStructure: [],
-      starterCode: "",
-    },
-
-    executionPlan: results.flatMap((r) => r?.executionPlan || []),
-
-    outcome: results.map((r) => r?.outcome).join(" "),
-
-    confusion: results.flatMap((r) => r?.confusion || []),
+    summary: results.map((r) => r.summary).join(" "),
+    keyPoints: [...new Set(results.flatMap((r) => r.keyPoints || []))],
+    notes: results.map((r) => r.notes).join("\n\n"),
+    actionSteps: [...new Set(results.flatMap((r) => r.actionSteps || []))],
+    roadmap: results.flatMap((r) => r.roadmap || []),
+    qa: results.flatMap((r) => r.qa || []),
+    learningPath: results.flatMap((r) => r.learningPath || []),
+    executionPlan: results.flatMap((r) => r.executionPlan || []),
+    outcome: results.map((r) => r.outcome).join(" "),
+    confusion: results.flatMap((r) => r.confusion || []),
+    actionEngine: results.flatMap((r) => r.actionEngine || []),
+    project: results.find((r) => r.project?.title)?.project || {},
   };
 };
 
-// ---------------- SAFETY FILTER ----------------
+// ---------------- CLEAN LAYER ----------------
+const refineLayer = async (merged) => {
+  const res = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: "Clean repetition, structure properly, return JSON only",
+      },
+      {
+        role: "user",
+        content: JSON.stringify(merged),
+      },
+    ],
+  });
 
+  return safeParse(res.choices[0].message.content) || merged;
+};
+
+// ---------------- DEEP LAYER ----------------
+const deepLayer = async (data) => {
+  const res = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `
+Return ONLY JSON.
+
+Improve:
+- explanations
+- fill missing gaps
+- make deeper understanding
+        `,
+      },
+      {
+        role: "user",
+        content: JSON.stringify(data),
+      },
+    ],
+  });
+
+  return safeParse(res.choices[0].message.content) || data;
+};
+
+// ---------------- TEACHING LAYER ----------------
+const teachingLayer = async (data) => {
+  const res = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      {
+        role: "system",
+        content: `
+Return ONLY JSON.
+
+You are an IIT professor.
+
+Transform into:
+- beginner + advanced explanation
+- real-world examples
+- clear teaching format
+        `,
+      },
+      {
+        role: "user",
+        content: JSON.stringify(data),
+      },
+    ],
+  });
+
+  return safeParse(res.choices[0].message.content) || data;
+};
 
 // ---------------- MAIN ----------------
 export const runAI = async ({ youtubeUrl, goal, language }) => {
@@ -309,16 +321,24 @@ export const runAI = async ({ youtubeUrl, goal, language }) => {
 
   const chunks = chunkText(transcript);
 
+  // 🔹 Layer 1
   const results = await Promise.all(
     chunks.map((chunk) => processChunk(chunk, goal, language)),
   );
 
   const filtered = results.filter(Boolean);
 
-  if (filtered.length === 0) {
+  if (!filtered.length) {
     throw new Error("AI processing failed");
   }
 
-  let merged = mergeResults(filtered);
-  return merged;
+  // 🔹 Merge
+  const merged = mergeResults(filtered);
+
+  // 🔹 NEW LAYERS (IMPORTANT)
+  const refined = await refineLayer(merged);
+  const deep = await deepLayer(refined);
+  const taught = await teachingLayer(deep);
+
+  return taught;
 };

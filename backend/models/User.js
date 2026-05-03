@@ -27,6 +27,18 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    credits: {
+      type: Number,
+      default: 10, // initial free credits
+    },
+    creditsExpiry: {
+      type: Date,
+      default: () => {
+        const d = new Date();
+        d.setDate(d.getDate() + 30); // 30 days validity
+        return d;
+      },
+    },
   },
   { timestamps: true },
 );
