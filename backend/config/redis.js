@@ -1,26 +1,54 @@
-import dotenv from "dotenv";
-dotenv.config(); 
 import IORedis from "ioredis";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const redisUrl = process.env.REDIS_URL;
 
 if (!redisUrl) {
-  throw new Error("❌ REDIS_URL missing in .env");
+  throw new Error("REDIS_URL is missing in .env");
 }
 
-export const connection = new IORedis(redisUrl, {
+//
+// ======================================================
+// REDIS CLIENT
+// ======================================================
+//
+
+export const redis = new IORedis(redisUrl, {
   maxRetriesPerRequest: null,
-  tls: {}, // 🔥 required for Upstash (rediss)
-  enableReadyCheck: false, // 🔥 prevents connection issues
+  enableReadyCheck: false,
+  retryStrategy(times) {
+    return Math.min(times * 200, 2000);
+  },
 });
 
-// Debug logs
-connection.on("connect", () => {
-  console.log("✅ Redis connected (Upstash)");
+redis.on("connect", () => {
+  console.log("✅ Redis connected");
 });
 
-connection.on("error", (err) => {
-  if (err.code !== "ECONNREFUSED") {
-    console.error("❌ Redis error:", err.message);
-  }
+redis.on("error", (err) => {
+  console.error("❌ Redis Error:", err.message);
 });
+
+//
+// ======================================================
+// BULLMQ CONNECTION
+// ======================================================
+//
+
+export const connection = {
+  url: redisUrl,
+};
+
+//
+// ======================================================
+// GET REDIS CLIENT
+// ======================================================
+//
+
+export const getRedisClient = () => {
+  return redis;
+};
+
+export default redis;

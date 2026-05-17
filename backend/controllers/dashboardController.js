@@ -14,10 +14,10 @@ export const getDashboardStats = async (req, res, next) => {
 
       Analysis.find({ user: userId })
         .sort({ createdAt: -1 })
-        .limit(5)
+        .limit(30)
         .select(
           "videoTitle youtubeUrl thumbnail status creditsUsed createdAt"
-        )
+        ) 
         .lean(),
 
       User.findById(userId)

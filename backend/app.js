@@ -4,69 +4,221 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 
+import hpp from "hpp";
+import compression from "compression";
+
 import connectDB from "./config/db.js";
 import errorHandler from "./middleware/errorMiddleware.js";
+
 import planRoutes from "./routes/planRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import analyzeRoutes from "./routes/analyzeRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
+
 const app = express();
 
-// ---------------- DB ----------------
+//
+// ======================================================
+// DATABASE
+// ======================================================
+//
+
 connectDB();
 
-// ---------------- TRUST PROXY ----------------
+//
+// ======================================================
+// TRUST PROXY (important for production / Render / Railway / VPS)
+// ======================================================
+//
+
 app.set("trust proxy", 1);
 
-// ---------------- SECURITY ----------------
-app.use(helmet());
+//
+// ======================================================
+// SECURITY
+// ======================================================
+//
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+  })
+);
+
+//
+// Prevent NoSQL Injection
+//
+
+
+//
+// Prevent HTTP Parameter Pollution
+//
+app.use(hpp());
+
+//
+// Compress API responses
+//
+app.use(compression());
+
+//
+// ======================================================
+// CORS
+// ======================================================
+//
+
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  "http://localhost:3000",
+  "http://localhost:5173",
+];
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL,
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(
+        new Error("CORS blocked: Origin not allowed")
+      );
+    },
     credentials: true,
-  }),
+  })
 );
 
-// ---------------- PARSERS ----------------
-app.use(cookieParser());
-app.use("/api/payment/webhook", express.raw({ type: "application/json" }));
-app.use(express.json({ limit: "30kb" }));
-app.use(express.urlencoded({ extended: true, limit: "30kb" }));
+//
+// ======================================================
+// PARSERS
+// ======================================================
+//
 
-// ---------------- RATE LIMIT ----------------
+app.use(cookieParser());
+
+//
+// Stripe/Razorpay webhook MUST come before express.json()
+//
+
+app.use(
+  "/api/payment/webhook",
+  express.raw({
+    type: "application/json",
+  })
+);
+
+//
+// JSON body parser
+//
+
+app.use(
+  express.json({
+    limit: "30kb",
+  })
+);
+
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "30kb",
+  })
+);
+
+//
+// ======================================================
+// RATE LIMITING
+// ======================================================
+//
+
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests. Please try again later.",
+  },
 });
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many auth attempts. Please try again later.",
+  },
+});
+
+const analyzeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many analysis requests. Please slow down.",
+  },
 });
 
 app.use(globalLimiter);
 
-// ---------------- ROUTES ----------------
+//
+// ======================================================
+// HEALTH CHECK
+// ======================================================
+//
+
 app.get("/api/health", (req, res) => {
-  res.json({ success: true, message: "API running" });
+  return res.status(200).json({
+    success: true,
+    message: "API running successfully",
+    uptime: process.uptime(),
+    timestamp: new Date(),
+  });
 });
 
+//
+// ======================================================
+// ROUTES
+// ======================================================
+//
+
 app.use("/api/auth", authLimiter, authRoutes);
-app.use("/api/analyze", analyzeRoutes); // ✅ only once
+
+app.use(
+  "/api/analyze",
+  analyzeLimiter,
+  analyzeRoutes
+);
+
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/plans", planRoutes);
 app.use("/api/payment", paymentRoutes);
-// ---------------- 404 ----------------
+
+//
+// ======================================================
+// 404 HANDLER
+// ======================================================
+//
+
 app.use((req, res) => {
-  res.status(404).json({
+  return res.status(404).json({
     success: false,
     message: "Route not found",
   });
 });
 
-// ---------------- ERROR ----------------
+//
+// ======================================================
+// GLOBAL ERROR HANDLER
+// ======================================================
+//
+
 app.use(errorHandler);
 
 export default app;
