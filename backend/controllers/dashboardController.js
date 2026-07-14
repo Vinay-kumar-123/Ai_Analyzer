@@ -14,15 +14,13 @@ export const getDashboardStats = async (req, res, next) => {
 
       Analysis.find({ user: userId })
         .sort({ createdAt: -1 })
-        .limit(30)
+        .limit(100)
         .select(
-          "videoTitle youtubeUrl thumbnail status creditsUsed createdAt"
-        ) 
+          `videoTitle youtubeUrl thumbnail status creditsUsed createdAt language contentType goal`,
+        )
         .lean(),
 
-      User.findById(userId)
-        .select("credits subscriptionPlan")
-        .lean(),
+      User.findById(userId).select("credits subscriptionPlan").lean(),
     ]);
 
     return res.status(200).json({
@@ -43,9 +41,7 @@ export const getDashboardStats = async (req, res, next) => {
 
 export const getCreditBalance = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id)
-      .select("credits")
-      .lean();
+    const user = await User.findById(req.user.id).select("credits").lean();
 
     if (!user) {
       return res.status(404).json({
@@ -82,7 +78,7 @@ export const getAnalysisHistory = async (req, res, next) => {
         .skip(skip)
         .limit(limit)
         .select(
-          "videoTitle youtubeUrl thumbnail status creditsUsed createdAt language"
+          "videoTitle youtubeUrl thumbnail status creditsUsed createdAt language",
         )
         .lean(),
 

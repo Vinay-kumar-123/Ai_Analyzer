@@ -4,6 +4,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 
+
 import hpp from "hpp";
 import compression from "compression";
 
@@ -71,7 +72,7 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   "http://localhost:3000",
   "http://localhost:5173",
-];
+].filter(Boolean);
 
 app.use(
   cors({
@@ -174,12 +175,23 @@ app.use(globalLimiter);
 //
 
 app.get("/api/health", (req, res) => {
-  return res.status(200).json({
+  const version =
+    process.env.npm_package_version || process.env.APP_VERSION || null;
+
+  const healthPayload = {
     success: true,
+    status: "ok",
     message: "API running successfully",
     uptime: process.uptime(),
     timestamp: new Date(),
-  });
+    environment: process.env.NODE_ENV || "development",
+  };
+
+  if (version) {
+    healthPayload.version = version;
+  }
+
+  return res.status(200).json(healthPayload);
 });
 
 //
