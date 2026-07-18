@@ -7,11 +7,7 @@
  * Build a unified learning memory from all chunk analysis results.
  *
  * Used by:
- * - notes.generator.js
- * - quiz.generator.js
- * - flashcards.generator.js
- * - roadmap.generator.js
- * - project.generator.js
+ * - notes.generator.js  (chunk → memory → synthesis pipeline)
  * ============================================================================
  */
 

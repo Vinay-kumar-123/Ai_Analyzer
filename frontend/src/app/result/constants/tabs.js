@@ -1,8 +1,7 @@
-import {
+﻿import {
   FiActivity,
   FiBook,
   FiCheckCircle,
-  FiZap,
   FiMap,
   FiAward,
 } from "react-icons/fi";
@@ -14,25 +13,12 @@ import {
  * ----------------------------------------------------------------------------
  * Single source of truth for all Result Page tabs.
  *
- * Responsibilities
- * - Tab order
- * - Labels
- * - Icons
- * - Backend routes
- * - Cache keys
- * - Lazy generation configuration
- *
- * MVP Tabs (Q&A removed)
- * - Summary      (eager, no API)
- * - Key Points   (eager, no API)
- * - Notes        (lazy, /notes endpoint)
- * - Actions      (lazy, /roadmap endpoint — shared with Roadmap)
- * - Roadmap      (lazy, /roadmap endpoint — shared with Actions)
- * - Quiz         (lazy, /quiz endpoint)
- *
- * Endpoint sharing
- * - route:"roadmap" → Actions + Roadmap (one HTTP call, two tab results)
- * - route:"quiz"    → Quiz only
+ * MVP Tabs
+ * - Summary    (eager, always visible)
+ * - Key Points (eager, always visible)
+ * - Notes      (lazy, /notes endpoint)
+ * - Roadmap    (lazy, /roadmap endpoint)
+ * - Quiz       (lazy, /quiz endpoint)
  *
  * NOTE
  * Never duplicate this configuration anywhere else.
@@ -77,22 +63,6 @@ export const RESULT_TABS = [
   },
 
   {
-    id: "actions",
-    label: "Actions",
-    icon: FiZap,
-
-    alwaysVisible: true,
-    lazy: true,
-
-    /*
-     * cacheKey matches the field returned by the /roadmap endpoint.
-     * The endpoint returns: { roadmap: [...], actionSteps: [...] }
-     */
-    cacheKey: "actionSteps",
-    route: "roadmap",
-  },
-
-  {
     id: "roadmap",
     label: "Roadmap",
     icon: FiMap,
@@ -100,10 +70,6 @@ export const RESULT_TABS = [
     alwaysVisible: true,
     lazy: true,
 
-    /*
-     * Shares the same backend route as "actions".
-     * One HTTP call satisfies both tabs.
-     */
     cacheKey: "roadmap",
     route: "roadmap",
   },

@@ -83,6 +83,13 @@ export async function getAnalysis(analysisId, signal) {
   });
 }
 
+export async function getAnalysisStatus(analysisId, signal) {
+  return request(`/api/analyze/${analysisId}/status`, {
+    method: "GET",
+    signal,
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Lazy Generators — keyed by BACKEND ROUTE                                     */
 /* -------------------------------------------------------------------------- */
@@ -159,6 +166,7 @@ export async function generateLazyContent(analysisId, route, signal) {
 
 export default {
   getAnalysis,
+  getAnalysisStatus,
   generateLazyContent,
 };
 

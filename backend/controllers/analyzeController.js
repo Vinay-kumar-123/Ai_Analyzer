@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Joi from "joi";
 import crypto from "crypto";
 
@@ -9,8 +10,12 @@ import Analysis from "../models/Analysis.js";
 
 import { analysisQueue } from "../queues/analysis.queue.js";
 import { getRedisClient } from "../config/redis.js";
+import { extractVideoId } from "../utils/youtubeMeta.js";
+import { CURRENT_AI_VERSION } from "../config/ai.js";
+import UserAnalysis from "../models/UserAnalysis.js";
 
-import { runLazyGeneration, normalizeOutput } from "../services/ai.service.js";
+import { runLazyGeneration } from "../services/ai.service.js";
+import { normalizeOutput } from "../services/shared/content.normalizer.js";
 
 import {
   MAX_VIDEO_DURATION_SECONDS,
@@ -26,183 +31,140 @@ import {
 // ======================================================
 
 const createAnalysisSchema = Joi.object({
-  youtubeUrl: Joi.string()
-    .uri({
-      scheme: ["http", "https"],
-    })
-    .required(),
+  youtubeUrl: Joi.string().uri({ scheme: ["http", "https"] }).required(),
 
   language: Joi.string()
     .valid(
-      "english",
-      "hinglish",
-      "hindi",
-      "bengali",
-      "tamil",
-      "telugu",
-      "marathi",
-      "gujarati",
-      "punjabi",
-      "urdu",
-      "malayalam",
-      "kannada",
-      "arabic",
-      "spanish",
-      "french",
-      "german",
-      "japanese",
-      "korean",
-      "chinese",
-      "portuguese"
+      "english", "hinglish", "hindi", "bengali", "tamil",
+      "telugu", "marathi", "gujarati", "punjabi", "urdu",
+      "malayalam", "kannada", "arabic", "spanish", "french",
+      "german", "japanese", "korean", "chinese", "portuguese",
     )
     .required(),
 
-  goal: Joi.string()
-    .valid(
-      "student",
-      "developer",
-      "job_seeker"
-    )
-    .required(),
+  goal: Joi.string().valid("student", "developer", "job_seeker").required(),
 });
 
 // ======================================================
 // HELPERS
 // ======================================================
 
-const createInputHash = ({
-  youtubeUrl,
-  goal,
-  language,
-}) =>
-  crypto
-    .createHash("sha256")
-    .update(
-      `${youtubeUrl}-${goal}-${language}`
-    )
-    .digest("hex");
+const createInputHash = ({ youtubeUrl, goal, language }) => {
+  const videoId = extractVideoId(youtubeUrl);
+  const normalizedUrl = videoId ? `https://www.youtube.com/watch?v=${videoId}` : youtubeUrl;
+  return crypto.createHash("sha256").update(`${normalizedUrl}-${goal}-${language}`).digest("hex");
+};
 
-const escapeRegExp = (value) =>
-  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const formatDuration = (seconds) => {
-  const h = Math.floor(
-    seconds / 3600
-  );
-
-  const m = Math.floor(
-    (seconds % 3600) / 60
-  );
-
-  if (h > 0) {
-    return `${h}h ${m}m`;
-  }
-
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
   const s = seconds % 60;
-
-  if (m > 0) {
-    return `${m}m ${
-      s > 0 ? `${s}s` : ""
-    }`.trim();
-  }
-
+  if (m > 0) return `${m}m${s > 0 ? ` ${s}s` : ""}`.trim();
   return `${s}s`;
 };
 
-const rollbackDailyLimit = (
-  userId
-) => {
-  const today =
-    new Date()
-      .toISOString()
-      .split("T")[0];
-
-  const key = `daily_limit:${userId}:${today}`;
-
-  getRedisClient()
-    .decr(key)
-    .catch((err) => {
-      console.warn(
-        "⚠️ Daily limit rollback failed:",
-        err.message
-      );
-    });
+const rollbackDailyLimit = (userId) => {
+  const key = `daily_limit:${userId}:${new Date().toISOString().split("T")[0]}`;
+  getRedisClient().decr(key).catch((err) => {
+    console.warn("Daily limit rollback failed:", err.message);
+  });
 };
 
-const checkAndIncrementDailyLimit =
-  async (userId) => {
-    const redis =
-      getRedisClient();
+const checkAndIncrementDailyLimit = async (userId) => {
+  const redis = getRedisClient();
+  const key = `daily_limit:${userId}:${new Date().toISOString().split("T")[0]}`;
+  const count = await redis.incr(key);
+  
+  if (count === 1) {
+    await redis.expire(key, DAILY_LIMIT_TTL_SECS);
+  } else {
+    // Fallback if process crashed before expire on first increment
+    const ttl = await redis.ttl(key);
+    if (ttl === -1) await redis.expire(key, DAILY_LIMIT_TTL_SECS);
+  }
+  
+  if (count > MAX_DAILY_ANALYSES) {
+    await redis.decr(key);
+    return { allowed: false };
+  }
+  return { allowed: true };
+};
 
-    const today =
-      new Date()
-        .toISOString()
-        .split("T")[0];
-
-    const key = `daily_limit:${userId}:${today}`;
-
-    const count =
-      await redis.incr(key);
-
-    if (count === 1) {
-      await redis.expire(
-        key,
-        DAILY_LIMIT_TTL_SECS
-      );
-    }
-
-    if (
-      count >
-      MAX_DAILY_ANALYSES
-    ) {
-      await redis.decr(key);
-
-      return {
-        allowed: false,
-        count: count - 1,
-      };
-    }
-
-    return {
-      allowed: true,
-      count,
-    };
-  };
-
-const cleanOrphans = async (
-  userId,
-  inputHash
-) => {
+const cleanOrphansGlobal = async (inputHash) => {
   try {
-    const cutoff = new Date(
-      Date.now() -
-        ORPHAN_JOB_AGE_MS
-    );
-
+    const cutoff = new Date(Date.now() - ORPHAN_JOB_AGE_MS);
     await Analysis.updateMany(
-      {
-        user: userId,
-        inputHash,
-        status: "queued",
-
-        createdAt: {
-          $lt: cutoff,
-        },
-      },
-
-      {
-        $set: {
-          status: "failed",
-          error:
-            "Orphaned job auto-cleaned",
-        },
-      }
+      { inputHash, status: { $in: ["queued", "processing"] }, createdAt: { $lt: cutoff } },
+      { $set: { status: "failed", error: "Orphaned job auto-cleaned" } },
     );
   } catch (err) {
-    console.warn(
-      "⚠️ Orphan cleanup failed:",
-      err.message
+    console.warn("Orphan cleanup failed:", err.message);
+  }
+};
+
+const acquireCreateLock = async (inputHash) => {
+  const lockKey = `lock:create:${inputHash}`;
+  const redis = getRedisClient();
+  let attempts = 0;
+  while (attempts < 20) { // wait up to 10 seconds
+    const acquired = await redis.set(lockKey, "1", "NX", "EX", 30);
+    if (acquired) return lockKey;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    attempts++;
+  }
+  throw new Error("Timeout acquiring creation lock. Please try again.");
+};
+
+const linkUserToAnalysisAtomic = async (analysisId, userId, credits, skipDeduction = false) => {
+  // 1. Check daily limit first
+  const { allowed } = await checkAndIncrementDailyLimit(userId);
+  if (!allowed) {
+    const err = new Error(MESSAGES.DAILY_LIMIT_REACHED);
+    err.status = 429;
+    throw err;
+  }
+
+  let userDeducted = false;
+  try {
+    if (!skipDeduction) {
+      // 2. Atomic credit deduction
+      const updatedUser = await User.findOneAndUpdate(
+        { _id: userId, credits: { $gte: credits } },
+        {
+          $inc: { credits: -credits, totalRequests: 1, creditsUsed: credits },
+          $set: { lastActivity: new Date() },
+        },
+        { returnDocument: "after" }
+      );
+
+      if (!updatedUser) {
+        const user = await User.findById(userId).select("credits").lean();
+        const err = new Error(MESSAGES.INSUFFICIENT_CREDITS(credits, user?.credits ?? 0));
+        err.status = 400;
+        throw err;
+      }
+      userDeducted = true;
+    }
+
+    // 3. Link user to analysis mapping
+    await UserAnalysis.findOneAndUpdate(
+      { user: userId, analysis: analysisId },
+      { $setOnInsert: { user: userId, analysis: analysisId, paid: !skipDeduction } },
+      { upsert: true, returnDocument: "after" }
     );
+  } catch (err) {
+    // Rollback changes on failure
+    if (userDeducted) {
+      await User.updateOne(
+        { _id: userId },
+        { $inc: { credits: credits, totalRequests: -1, creditsUsed: -credits } }
+      );
+    }
+    rollbackDailyLimit(userId);
+    throw err;
   }
 };
 
@@ -211,784 +173,447 @@ const cleanOrphans = async (
 // POST /api/analyze/youtube
 // ======================================================
 
-export const createYoutubeAnalysis =
-  async (req, res, next) => {
+export const createYoutubeAnalysis = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    const { error, value } = createAnalysisSchema.validate(req.body, {
+      abortEarly: true,
+      stripUnknown: true,
+    });
+
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details?.[0]?.message || error.message });
+    }
+
+    const { youtubeUrl, language, goal } = value;
+
+    // Normalize URL
+    const videoId = extractVideoId(youtubeUrl);
+    const normalizedUrl = videoId ? `https://www.youtube.com/watch?v=${videoId}` : youtubeUrl;
+    const inputHash = createInputHash({ youtubeUrl: normalizedUrl, goal, language });
+
+    // Stale processing recovery
+    await cleanOrphansGlobal(inputHash);
+
+    let lockKey;
     try {
-      const userId =
-        req.user.id;
+      // 1. Initial fast check without lock
+      let analysis = await Analysis.findOne({
+        inputHash,
+        aiVersion: CURRENT_AI_VERSION,
+        status: { $in: ["completed", "queued", "processing"] },
+      });
 
-      // ==============================================
-      // VALIDATION
-      // ==============================================
-
-      const {
-        error,
-        value,
-      } =
-        createAnalysisSchema.validate(
-          req.body,
-          {
-            abortEarly: true,
-            stripUnknown: true,
-          }
-        );
-
-      if (error) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message:
-              error.details?.[0]
-                ?.message ||
-              error.message,
-          });
+      if (!analysis) {
+        lockKey = await acquireCreateLock(inputHash);
+        // Double check after acquiring lock
+        analysis = await Analysis.findOne({
+          inputHash,
+          aiVersion: CURRENT_AI_VERSION,
+          status: { $in: ["completed", "queued", "processing"] },
+        });
       }
 
-      const {
-        youtubeUrl,
+      if (analysis) {
+        if (lockKey) {
+          const redis = getRedisClient();
+          await redis.del(lockKey).catch(() => {});
+        }
+
+        // Track cache analytics for completed analyses
+        if (analysis.status === "completed") {
+          await Analysis.findByIdAndUpdate(analysis._id, {
+            $inc: { cacheHits: 1 },
+            $set: { lastAccessedAt: new Date() },
+          });
+        }
+
+        // Re-use existing analysis
+        const existingMapping = await UserAnalysis.findOne({ user: userId, analysis: analysis._id });
+        if (!existingMapping) {
+          // Verify daily limits, credits, and link them.
+          // If analysis is already completed, deduct credits now. Otherwise, worker will deduct later.
+          const isCompleted = analysis.status === "completed";
+          await linkUserToAnalysisAtomic(analysis._id, userId, analysis.creditsUsed, !isCompleted);
+        }
+
+        const isCompleted = analysis.status === "completed";
+        return res.status(200).json({
+          success: true,
+          cached: isCompleted,
+          processing: !isCompleted,
+          message: isCompleted ? "Using cached analysis" : "Analysis already in progress",
+          analysisId: analysis._id,
+          status: analysis.status,
+        });
+      }
+
+      // Cache miss - we hold the lock, check user credits and daily limits
+      const user = await User.findById(userId).select("credits").lean();
+      if (!user) {
+        throw new Error("User account not found");
+      }
+
+      // Metadata lookup
+      let video;
+      try {
+        video = await getVideoMeta(normalizedUrl);
+      } catch (err) {
+        throw new Error(MESSAGES.VIDEO_UNAVAILABLE);
+      }
+
+      if (!video?.duration) {
+        throw new Error(MESSAGES.VIDEO_UNAVAILABLE);
+      }
+
+      // Validate duration
+      if (video.duration < MIN_VIDEO_DURATION_SECONDS) {
+        const err = new Error(MESSAGES.VIDEO_TOO_SHORT);
+        err.videoDuration = video.duration;
+        err.durationFormatted = formatDuration(video.duration);
+        err.status = 400;
+        throw err;
+      }
+
+      if (video.duration > MAX_VIDEO_DURATION_SECONDS) {
+        const err = new Error(MESSAGES.VIDEO_TOO_LONG);
+        err.videoDuration = video.duration;
+        err.durationFormatted = formatDuration(video.duration);
+        err.maxDuration = MAX_VIDEO_DURATION_SECONDS;
+        err.status = 400;
+        throw err;
+      }
+
+      const requiredCredits = calculateCredits(video.duration);
+      if (user.credits < requiredCredits) {
+        const err = new Error(MESSAGES.INSUFFICIENT_CREDITS(requiredCredits, user.credits));
+        err.status = 400;
+        throw err;
+      }
+
+      // Create the global Analysis document
+      analysis = await Analysis.create({
+        youtubeUrl: normalizedUrl,
         language,
         goal,
-      } = value;
-
-      // ==============================================
-      // HASH
-      // ==============================================
-
-      const inputHash =
-        createInputHash({
-          youtubeUrl,
-          goal,
-          language,
-        });
-
-      // ==============================================
-      // CLEAN ORPHANS
-      // ==============================================
-
-      await cleanOrphans(
-        userId,
-        inputHash
-      );
-
-      // ==============================================
-      // COMPLETED CACHE
-      // ==============================================
-
-      const existingCompleted =
-        await Analysis.findCached(
-          userId,
-          inputHash
-        );
-
-      if (existingCompleted) {
-        return res
-          .status(200)
-          .json({
-            success: true,
-            cached: true,
-            processing: false,
-
-            message:
-              "Using your previously completed analysis",
-
-            analysisId:
-              existingCompleted._id,
-
-            status:
-              existingCompleted.status,
-          });
-      }
-
-      // ==============================================
-      // RUNNING CACHE
-      // ==============================================
-
-      const existingRunning =
-        await Analysis.findRunning(
-          userId,
-          inputHash
-        );
-
-      if (existingRunning) {
-        return res
-          .status(200)
-          .json({
-            success: true,
-            cached: false,
-            processing: true,
-
-            message:
-              "Analysis already in progress",
-
-            analysisId:
-              existingRunning._id,
-
-            status:
-              existingRunning.status,
-          });
-      }
-
-      // ==============================================
-      // USER
-      // ==============================================
-
-      const user =
-        await User.findById(
-          userId
-        )
-          .select("credits")
-          .lean();
-
-      if (!user) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-            message:
-              "User account not found",
-          });
-      }
-
-      // ==============================================
-      // DAILY LIMIT
-      // ==============================================
-
-      const { allowed } =
-        await checkAndIncrementDailyLimit(
-          userId
-        );
-
-      if (!allowed) {
-        return res
-          .status(429)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.DAILY_LIMIT_REACHED,
-
-            errorCode:
-              "DAILY_LIMIT_REACHED",
-
-            resetAt:
-              "midnight",
-          });
-      }
-
-      // ==============================================
-      // VIDEO META
-      // ==============================================
-
-      let video;
-
-      try {
-        video =
-          await getVideoMeta(
-            youtubeUrl
-          );
-      } catch {
-        rollbackDailyLimit(
-          userId
-        );
-
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.VIDEO_UNAVAILABLE,
-
-            errorCode:
-              "VIDEO_UNAVAILABLE",
-          });
-      }
-
-      if (
-        !video ||
-        !video.duration
-      ) {
-        rollbackDailyLimit(
-          userId
-        );
-
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.VIDEO_UNAVAILABLE,
-
-            errorCode:
-              "VIDEO_UNAVAILABLE",
-          });
-      }
-
-      // ==============================================
-      // MIN DURATION
-      // ==============================================
-
-      if (
-        video.duration <
-        MIN_VIDEO_DURATION_SECONDS
-      ) {
-        rollbackDailyLimit(
-          userId
-        );
-
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.VIDEO_TOO_SHORT,
-
-            errorCode:
-              "VIDEO_TOO_SHORT",
-
-            videoDuration:
-              video.duration,
-
-            durationFormatted:
-              formatDuration(
-                video.duration
-              ),
-
-            minDuration:
-              MIN_VIDEO_DURATION_SECONDS,
-          });
-      }
-
-      // ==============================================
-      // MAX DURATION
-      // ==============================================
-
-      if (
-        video.duration >
-        MAX_VIDEO_DURATION_SECONDS
-      ) {
-        rollbackDailyLimit(
-          userId
-        );
-
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.VIDEO_TOO_LONG,
-
-            errorCode:
-              "VIDEO_TOO_LONG",
-
-            videoDuration:
-              video.duration,
-
-            durationFormatted:
-              formatDuration(
-                video.duration
-              ),
-
-            maxDuration:
-              MAX_VIDEO_DURATION_SECONDS,
-
-            maxDurationLabel:
-              "4 hours",
-          });
-      }
-
-      // ==============================================
-      // CREDIT CHECK
-      // ==============================================
-
-      const requiredCredits =
-        calculateCredits(
-          video.duration
-        );
-
-      if (
-        user.credits <
-        requiredCredits
-      ) {
-        rollbackDailyLimit(
-          userId
-        );
-
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.INSUFFICIENT_CREDITS(
-                requiredCredits,
-                user.credits
-              ),
-
-            errorCode:
-              "INSUFFICIENT_CREDITS",
-
-            requiredCredits,
-
-            userCredits:
-              user.credits,
-          });
-      }
-
-      // ==============================================
-      // CREATE ANALYSIS
-      // ==============================================
-
-      const analysis =
-        await Analysis.create({
-          user: userId,
-
-          youtubeUrl,
-
-          language,
-
-          goal,
-
-          inputHash,
-
-          status: "queued",
-
-          progress: 0,
-
-          creditsUsed:
-            requiredCredits,
-
-          creditsDeducted: false,
-
-          videoTitle:
-            video.title || "",
-
-          thumbnail:
-            video.thumbnail || "",
-
-          duration:
-            video.duration || 0,
-
-          transcriptLength: 0,
-
-          summary: "",
-
-          notes: "",
-
-          sections: [],
-
-          keyPoints: [],
-
-          roadmap: [],
-
-          actionSteps: [],
-
-          learningPath: [],
-
-          qa: [],
-
-          executionPlan: [],
-
-          actionEngine: [],
-
-          confusion: [],
-
-          quiz: [],
-
-          flashcards: [],
-
-          rawAI: "",
-
-          error: "",
-        });
-
-      console.log(
-        `🚀 Analysis created: ${analysis._id} | duration: ${formatDuration(
-          video.duration
-        )}`
-      );
-
-      // ==============================================
-      // ENQUEUE
-      // ==============================================
+        inputHash,
+        status: "queued",
+        progress: 0,
+        creditsUsed: requiredCredits,
+        creditsDeducted: false,
+        videoTitle: video.title || "",
+        thumbnail: video.thumbnail || "",
+        duration: video.duration || 0,
+        aiVersion: CURRENT_AI_VERSION,
+        cacheHits: 0,
+        lastAccessedAt: new Date(),
+      });
+
+      // Create mapping (skip credit deduction for now since it will be run in worker on success)
+      await linkUserToAnalysisAtomic(analysis._id, userId, requiredCredits, true);
+
+      console.log(`📦 Analysis created: ${analysis._id} | duration: ${formatDuration(video.duration)}`);
 
       await analysisQueue.add(
         "youtube-analysis",
-
         {
-          analysisId:
-            analysis._id.toString(),
-
-          userId:
-            userId.toString(),
-
-          youtubeUrl,
-
+          analysisId: analysis._id.toString(),
+          youtubeUrl: normalizedUrl,
           language,
-
           goal,
-
-          credits:
-            requiredCredits,
+          credits: requiredCredits,
         },
-
         {
-          jobId:
-            analysis._id.toString(),
-
+          jobId: analysis._id.toString(),
           attempts: 3,
-
-          backoff: {
-            type: "exponential",
-            delay: 3000,
-          },
-
-          removeOnComplete: {
-            count: 100,
-          },
-
-          removeOnFail: {
-            count: 50,
-          },
-        }
+          backoff: { type: "exponential", delay: 30000 },
+          removeOnComplete: { count: 100 },
+          removeOnFail: { count: 50 },
+        },
       );
 
-      // ==============================================
-      // RESPONSE
-      // ==============================================
+      if (lockKey) {
+        const redis = getRedisClient();
+        await redis.del(lockKey).catch(() => {});
+      }
 
-      return res
-        .status(202)
-        .json({
-          success: true,
-
-          cached: false,
-
-          processing: true,
-
-          message:
-            MESSAGES.PROCESSING_STARTED,
-
-          analysisId:
-            analysis._id,
-
-          status: "queued",
-
-          video: {
-            title:
-              video.title || "",
-
-            duration:
-              video.duration || 0,
-
-            durationFormatted:
-              formatDuration(
-                video.duration
-              ),
-
-            thumbnail:
-              video.thumbnail ||
-              "",
-          },
-        });
+      return res.status(202).json({
+        success: true,
+        cached: false,
+        processing: true,
+        message: MESSAGES.PROCESSING_STARTED,
+        analysisId: analysis._id,
+        status: "queued",
+        video: {
+          title: video.title || "",
+          duration: video.duration || 0,
+          durationFormatted: formatDuration(video.duration),
+          thumbnail: video.thumbnail || "",
+        },
+      });
     } catch (err) {
-      console.error(
-        "❌ createYoutubeAnalysis error:",
-        err.message,
-        err.stack
-      );
-
-      next(err);
+      if (lockKey) {
+        const redis = getRedisClient();
+        await redis.del(lockKey).catch(() => {});
+      }
+      throw err;
     }
-  };
+  } catch (err) {
+    console.error("createYoutubeAnalysis error:", err.message);
+    next(err);
+  }
+};
 
 // ======================================================
 // PREVIEW
+// GET /api/analyze/preview?url=
 // ======================================================
 
-export const previewAnalysis =
-  async (req, res) => {
-    try {
-      const { url } =
-        req.query;
+export const previewAnalysis = async (req, res) => {
+  try {
+    const { url } = req.query;
 
-      if (
-        !url ||
-        typeof url !== "string"
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.INVALID_URL,
-          });
-      }
-
-      if (
-        !url.startsWith(
-          "http://"
-        ) &&
-        !url.startsWith(
-          "https://"
-        )
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.INVALID_URL,
-          });
-      }
-
-      let video;
-
-      try {
-        video =
-          await getVideoMeta(
-            url
-          );
-      } catch {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.VIDEO_UNAVAILABLE,
-          });
-      }
-
-      if (
-        !video ||
-        !video.duration
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.VIDEO_UNAVAILABLE,
-
-            errorCode:
-              "VIDEO_UNAVAILABLE",
-          });
-      }
-
-      if (
-        video.duration <
-        MIN_VIDEO_DURATION_SECONDS
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.VIDEO_TOO_SHORT,
-
-            errorCode:
-              "VIDEO_TOO_SHORT",
-
-            videoDuration:
-              video.duration,
-
-            durationFormatted:
-              formatDuration(
-                video.duration
-              ),
-          });
-      }
-
-      if (
-        video.duration >
-        MAX_VIDEO_DURATION_SECONDS
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              MESSAGES.VIDEO_TOO_LONG,
-
-            errorCode:
-              "VIDEO_TOO_LONG",
-
-            videoDuration:
-              video.duration,
-
-            durationFormatted:
-              formatDuration(
-                video.duration
-              ),
-
-            maxDuration:
-              MAX_VIDEO_DURATION_SECONDS,
-
-            maxDurationLabel:
-              "4 hours",
-          });
-      }
-
-      const requiredCredits =
-        calculateCredits(
-          video.duration
-        );
-
-      const user =
-        await User.findById(
-          req.user.id
-        )
-          .select("credits")
-          .lean();
-
-      const userCredits =
-        user?.credits ?? 0;
-
-      return res
-        .status(200)
-        .json({
-          success: true,
-
-          requiredCredits,
-
-          userCredits,
-
-          canAnalyze:
-            userCredits >=
-            requiredCredits,
-
-          video: {
-            title:
-              video.title || "",
-
-            duration:
-              video.duration || 0,
-
-            durationFormatted:
-              formatDuration(
-                video.duration
-              ),
-
-            thumbnail:
-              video.thumbnail ||
-              "",
-          },
-        });
-    } catch (err) {
-      console.error(
-        "❌ previewAnalysis error:",
-        err.message
-      );
-
-      return res
-        .status(500)
-        .json({
-          success: false,
-
-          message:
-            "Preview failed. Please try again.",
-        });
+    if (!url || typeof url !== "string" || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+      return res.status(400).json({ success: false, message: MESSAGES.INVALID_URL });
     }
-  };
 
-// ======================================================
-// GET ANALYSIS
-// ======================================================
-
-export const getAnalysisById =
-  async (req, res) => {
+    let video;
     try {
-      const { id } =
-        req.params;
-
-      if (
-        !id ||
-        id.length !== 24
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              "Invalid analysis ID",
-          });
-      }
-
-      const analysis =
-        await Analysis.findOne({
-          _id: id,
-          user: req.user.id,
-        });
-
-      if (!analysis) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-
-            message:
-              "Analysis not found or access denied",
-          });
-      }
-
-      return res
-        .status(200)
-        .json({
-          success: true,
-          data: analysis,
-        });
-    } catch (err) {
-      console.error(
-        "❌ getAnalysisById error:",
-        err.message
-      );
-
-      return res
-        .status(500)
-        .json({
-          success: false,
-
-          message:
-            "Failed to retrieve analysis",
-        });
+      video = await getVideoMeta(url);
+    } catch {
+      return res.status(400).json({ success: false, message: MESSAGES.VIDEO_UNAVAILABLE });
     }
-  };
 
-const lazyGenSchema = Joi.object({
-  part: Joi.string()
-    .valid(
-      "notes",
-      "quiz",
-      "flashcards",
-      "project",
-      "roadmap"
-    )
-    .required(),
-});
+    if (!video?.duration) {
+      return res.status(400).json({ success: false, message: MESSAGES.VIDEO_UNAVAILABLE, errorCode: "VIDEO_UNAVAILABLE" });
+    }
+
+    if (video.duration < MIN_VIDEO_DURATION_SECONDS) {
+      return res.status(400).json({
+        success: false, message: MESSAGES.VIDEO_TOO_SHORT, errorCode: "VIDEO_TOO_SHORT",
+        videoDuration: video.duration, durationFormatted: formatDuration(video.duration),
+      });
+    }
+
+    if (video.duration > MAX_VIDEO_DURATION_SECONDS) {
+      return res.status(400).json({
+        success: false, message: MESSAGES.VIDEO_TOO_LONG, errorCode: "VIDEO_TOO_LONG",
+        videoDuration: video.duration, durationFormatted: formatDuration(video.duration),
+        maxDuration: MAX_VIDEO_DURATION_SECONDS,
+      });
+    }
+
+    const requiredCredits = calculateCredits(video.duration);
+    const user = await User.findById(req.user.id).select("credits").lean();
+    const userCredits = user?.credits ?? 0;
+
+    return res.status(200).json({
+      success: true,
+      requiredCredits, userCredits,
+      canAnalyze: userCredits >= requiredCredits,
+      video: {
+        title: video.title || "",
+        duration: video.duration || 0,
+        durationFormatted: formatDuration(video.duration),
+        thumbnail: video.thumbnail || "",
+      },
+    });
+  } catch (err) {
+    console.error("previewAnalysis error:", err.message);
+    return res.status(500).json({ success: false, message: "Preview failed. Please try again." });
+  }
+};
+
+// ======================================================
+// GET ANALYSIS BY ID
+// GET /api/analyze/:id
+// ======================================================
+
+export const getAnalysisById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid analysis ID" });
+    }
+
+    const access = await UserAnalysis.findOne({ analysis: id, user: req.user.id });
+    if (!access) {
+      return res.status(404).json({ success: false, message: "Analysis not found or access denied" });
+    }
+
+    const analysis = await Analysis.findOne({ _id: id }).select("-transcript");
+
+    if (!analysis) {
+      return res.status(404).json({ success: false, message: "Analysis not found" });
+    }
+
+    return res.status(200).json({ success: true, data: analysis });
+  } catch (err) {
+    console.error("getAnalysisById error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to retrieve analysis" });
+  }
+};
+
+// ======================================================
+// GET ANALYSIS STATUS
+// GET /api/analyze/:id/status
+// ======================================================
+
+export const getAnalysisStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid analysis ID" });
+    }
+
+    const access = await UserAnalysis.findOne({ analysis: id, user: req.user.id });
+    if (!access) {
+      return res.status(404).json({ success: false, message: "Analysis not found or access denied" });
+    }
+
+    const analysis = await Analysis.findOne(
+      { _id: id },
+      { status: 1, progress: 1, error: 1, completedAt: 1 },
+    ).lean();
+
+    if (!analysis) {
+      return res.status(404).json({ success: false, message: "Analysis not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      status: analysis.status,
+      progress: analysis.progress,
+      error: analysis.error || "",
+      completedAt: analysis.completedAt || null,
+    });
+  } catch (err) {
+    console.error("getAnalysisStatus error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to fetch status" });
+  }
+};
+
+// ======================================================
+// GET USER ANALYSES (PAGINATED)
+// GET /api/analyze/history
+// ======================================================
+
+export const getUserAnalyses = async (req, res) => {
+  try {
+    const page  = Math.max(1, parseInt(req.query.page,  10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const skip  = (page - 1) * limit;
+
+    const mappings = await UserAnalysis.find({ user: req.user.id }).select("analysis").lean();
+    const analysisIds = mappings.map((m) => m.analysis);
+
+    const filter = { _id: { $in: analysisIds } };
+
+    if (req.query.status) {
+      const validStatuses = ["queued", "processing", "completed", "failed"];
+      if (validStatuses.includes(req.query.status)) {
+        filter.status = req.query.status;
+      }
+    }
+
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    if (search) {
+      const escaped = escapeRegExp(search);
+      filter.$or = [
+        { videoTitle: new RegExp(escaped, "i") },
+        { summary:    new RegExp(escaped, "i") },
+        { youtubeUrl: new RegExp(escaped, "i") },
+        { contentType: new RegExp(escaped, "i") },
+      ];
+    }
+
+    const allowedSortFields = ["createdAt", "updatedAt", "progress", "status", "duration"];
+    const sortField     = allowedSortFields.includes(req.query.sortBy) ? req.query.sortBy : "createdAt";
+    const sortDirection = req.query.sortOrder === "asc" ? 1 : -1;
+
+    const [analyses, total] = await Promise.all([
+      Analysis.find(filter)
+        .select("-notes -transcript -sections")
+        .sort({ [sortField]: sortDirection })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Analysis.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: analyses,
+      pagination: {
+        total, page, limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    });
+  } catch (err) {
+    console.error("getUserAnalyses error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to retrieve analyses" });
+  }
+};
+
+// ======================================================
+// DELETE
+// DELETE /api/analyze/:id
+// ======================================================
+
+export const deleteAnalysis = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid analysis ID" });
+    }
+
+    const access = await UserAnalysis.findOneAndDelete({ analysis: id, user: req.user.id });
+    if (!access) {
+      return res.status(404).json({ success: false, message: "Analysis not found or access denied" });
+    }
+
+    // Clean up global analysis if no other user is linked to it
+    const remaining = await UserAnalysis.countDocuments({ analysis: id });
+    if (remaining === 0) {
+      await Analysis.deleteOne({ _id: id });
+    }
+
+    return res.status(200).json({ success: true, message: "Analysis deleted successfully" });
+  } catch (err) {
+    console.error("deleteAnalysis error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to delete analysis" });
+  }
+};
+
+// ======================================================
+// LAZY GENERATION INFRASTRUCTURE
+// ======================================================
 
 const getAnalysisForUser = async (id, userId) => {
-  if (!id || id.length !== 24) {
-    throw new Error("Invalid analysis ID");
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    const err = new Error("Invalid analysis ID");
+    err.status = 400;
+    throw err;
   }
 
-  const analysis = await Analysis.findOne({
-    _id: id,
-    user: userId,
-  });
+  const access = await UserAnalysis.findOne({ analysis: id, user: userId });
+
+  if (!access) {
+    const err = new Error("Analysis not found or access denied");
+    err.status = 404;
+    throw err;
+  }
+
+  const analysis = await Analysis.findById(id);
 
   if (!analysis) {
-    const err = new Error("Analysis not found or access denied");
+    const err = new Error("Analysis not found");
     err.status = 404;
     throw err;
   }
@@ -996,51 +621,28 @@ const getAnalysisForUser = async (id, userId) => {
   return analysis;
 };
 
+/**
+ * Maps each lazy part to its boolean flag field in the Analysis schema.
+ */
 const lazyFlagMap = {
-  notes: "notesGenerated",
-  quiz: "quizGenerated",
-  flashcards: "flashcardsGenerated",
-  project: "projectGenerated",
+  notes:   "notesGenerated",
+  quiz:    "quizGenerated",
   roadmap: "roadmapGenerated",
 };
 
 /**
- * The PRIMARY fields that must be non-empty to consider a part "generated".
- * These are the fields the frontend actually consumes.
- *
- * IMPORTANT: Only list the CORE output fields here — NOT optional secondary
- * fields like learningPath, executionPlan, or qa.  Those are often empty
- * and must not gate the cache check.
- *
- * The generation flag (lazyFlagMap) is the authoritative signal.  These
- * fields are a secondary sanity-check for the case where the flag was set
- * but the write failed partway through.
+ * The core content fields that must be non-empty to confirm a part is cached.
+ * These are a secondary sanity check — the flag is the authoritative signal.
  */
 const lazyCacheCheckFields = {
-  notes: ["notes"],
-  quiz: ["quiz"],
-  flashcards: ["flashcards"],
-  project: ["project"],
-  roadmap: ["roadmap", "actionSteps"],
-};
-
-/**
- * All fields written to MongoDB when a part is generated.
- * Includes secondary / optional fields that may or may not be populated
- * depending on AI output.
- */
-const lazyUpdateFields = {
-  notes: ["notes", "sections", "confusion"],
-  quiz: ["quiz", "qa"],
-  flashcards: ["flashcards"],
-  project: ["project", "actionEngine"],
-  roadmap: ["roadmap", "actionSteps", "learningPath", "executionPlan"],
+  notes:   ["notes"],
+  quiz:    ["quiz"],
+  roadmap: ["roadmap"],
 };
 
 const acquireLazyLock = async (analysisId, part) => {
-  const redis = getRedisClient();
   const lockKey = `analysis:${analysisId}:lazy:${part}`;
-  const acquired = await redis.set(lockKey, "1", "NX", "EX", 60);
+  const acquired = await getRedisClient().set(lockKey, "1", "NX", "EX", 180);
   if (!acquired) {
     const err = new Error("Generation already in progress for this content.");
     err.status = 429;
@@ -1051,437 +653,123 @@ const acquireLazyLock = async (analysisId, part) => {
 
 const releaseLazyLock = async (lockKey) => {
   if (!lockKey) return;
-  try {
-    await getRedisClient().del(lockKey);
-        });
+  try { await getRedisClient().del(lockKey); } catch { /* ignore */ }
+};
+
+const performLazyGeneration = async (analysis, part) => {
+  if (!analysis.transcript?.trim()) {
+    throw new Error(
+      "Transcript data unavailable. Analysis may not have completed transcription. Please try again later.",
+    );
+  }
+
+  const generatePromise = runLazyGeneration({
+    transcript: analysis.transcript,
+    goal: analysis.goal,
+    language: analysis.language,
+    part,
+  });
+
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => {
+      const err = new Error("AI generation timeout. Please try again.");
+      err.status = 408;
+      reject(err);
+    }, 120_000)
+  );
+
+  const raw = await Promise.race([generatePromise, timeoutPromise]);
+
+  // Normalize exactly once here. runLazyGeneration returns raw generator output.
+  return normalizeOutput(raw);
+};
+
+const updateLazyContent = async (id, part, normalized) => {
+  const updates = { [lazyFlagMap[part]]: true };
+
+  if (part === "notes") {
+    updates.notes    = normalized.notes;
+    updates.sections = normalized.sections;
+  }
+
+  if (part === "quiz") {
+    updates.quiz = normalized.quiz;
+  }
+
+  if (part === "roadmap") {
+    updates.roadmap      = normalized.roadmap;
+    updates.learningPath = normalized.learningPath;
+    updates.executionPlan = normalized.executionPlan;
+  }
+
+  return Analysis.findByIdAndUpdate(id, { $set: updates }, { returnDocument: "after" });
+};
+
+const getLazyHandler = (part) =>
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      let analysis;
+      try {
+        analysis = await getAnalysisForUser(id, req.user.id);
+      } catch (err) {
+        return res.status(err.status || 400).json({ success: false, message: err.message });
       }
 
-      console.log(`${tag} status=${analysis.status}`);
-
       if (analysis.status !== "completed") {
-        console.log(`${tag} ❌ 409 – analysis not completed`);
         return res.status(409).json({
           success: false,
           message: "Analysis is still processing. Please wait until it completes.",
         });
       }
 
-      if (checkContent && checkContent(analysis) === false) {
-        console.log(`${tag} ❌ 403 – content not available for this analysis`);
-        return res.status(403).json({
-          success: false,
-          message: "Content is not available for this analysis.",
-        });
-      }
-
-      const flagKey = lazyFlagMap[part];
+      const flagKey          = lazyFlagMap[part];
       const cacheCheckFields = lazyCacheCheckFields[part];
-
-      // ── DEBUG: show every field value that goes into the cache gate ────
-      console.log(`${tag} flagKey="${flagKey}" value=${analysis[flagKey]}`);
-      for (const field of cacheCheckFields) {
-        const val = analysis[field];
-        const len = Array.isArray(val) ? val.length : (val ? String(val).length : 0);
-        console.log(`${tag}   cacheCheckField "${field}": isArray=${Array.isArray(val)} length=${len}`);
-      }
 
       const primaryHasContent = cacheCheckFields.every((field) => {
         const value = analysis[field];
         return Array.isArray(value) ? value.length > 0 : Boolean(value);
       });
 
-      console.log(`${tag} primaryHasContent=${primaryHasContent}  flagSet=${Boolean(analysis[flagKey])}`);
-
       if (analysis[flagKey] && primaryHasContent) {
-        console.log(`${tag} ✅ CACHE HIT – returning cached data`);
-        return res.status(200).json({
-          success: true,
-          generated: false,
-          cached: true,
-          data: analysis,
-        });
+        return res.status(200).json({ success: true, generated: false, cached: true, data: analysis });
       }
 
-      console.log(`${tag} CACHE MISS – proceeding to generation`);
-
-      // ── Acquire Redis lock ────────────────────────────────────────────
       let lockKey;
       try {
         lockKey = await acquireLazyLock(id, part);
-        console.log(`${tag} 🔐 Lock acquired: ${lockKey}`);
       } catch (err) {
-        console.log(`${tag} ❌ 429 from acquireLazyLock – lock already held: ${err.message}`);
-        return res.status(err.status || 429).json({
-          success: false,
-          message: err.message,
-        });
+        if (err.status === 429) res.setHeader("Retry-After", 10);
+        return res.status(err.status || 429).json({ success: false, message: err.message });
       }
 
       try {
-        console.log(`${tag} 🤖 Starting Gemini generation`);
         const normalized = await performLazyGeneration(analysis, part);
-
-        // ── DEBUG: show what the generator actually returned ──────────────
-        for (const field of cacheCheckFields) {
-          const val = normalized[field];
-          const len = Array.isArray(val) ? val.length : (val ? String(val).length : 0);
-          console.log(`${tag}   normalized["${field}"]: isArray=${Array.isArray(val)} length=${len}`);
-        }
-
-        console.log(`${tag} 💾 Saving to MongoDB`);
-        const refreshed = await updateLazyContent(id, part, normalized);
-
-        if (!refreshed) {
-          console.log(`${tag} ❌ MongoDB save returned null – document not found?`);
-        } else {
-          console.log(`${tag} ✅ MongoDB save OK  ${flagKey}=${refreshed[flagKey]}`);
-          // Verify cache fields after save
-          for (const field of cacheCheckFields) {
-            const val = refreshed[field];
-            const len = Array.isArray(val) ? val.length : (val ? String(val).length : 0);
-            console.log(`${tag}   saved["${field}"]: length=${len}`);
-          }
-        }
-
-        return res.status(200).json({
-          success: true,
-          generated: true,
-          data: refreshed,
-        });
+        const refreshed  = await updateLazyContent(id, part, normalized);
+        return res.status(200).json({ success: true, generated: true, data: refreshed });
       } catch (generationErr) {
-        console.log(`${tag} ❌ Generation error: ${generationErr.message}`);
         if (generationErr.status === 429 || generationErr.message?.includes("429")) {
-          console.log(`${tag} ❌ 429 from Gemini/AI layer`);
+          res.setHeader("Retry-After", 30);
           return res.status(429).json({
             success: false,
-            message: "API rate limit reached. Please try again in a few moments.",
-            retryAfter: generationErr.message?.match(/try again in ([\d.]+)s/)
-              ? parseInt(generationErr.message.match(/try again in ([\d.]+)s/)[1]) + 5
-              : 30,
+            message: "AI generation limit reached. Please try again in a few moments."
           });
         }
         throw generationErr;
       } finally {
         await releaseLazyLock(lockKey);
-        console.log(`${tag} 🔓 Lock released`);
-        console.log(`${tag} ──────────────────────────────────────────\n`);
       }
     } catch (err) {
-      console.error(`${tag} ❌ 500 unhandled: ${err.message}`);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to retrieve requested content.",
-      });
+      console.error(`getLazyHandler(${part}) error:`, err.message);
+      return res.status(500).json({ success: false, message: "Failed to retrieve requested content." });
     }
   };
 
+// ======================================================
+// LAZY ENDPOINT EXPORTS
+// ======================================================
 
-export const getNotes = getLazyHandler("notes");
-export const getQuiz = getLazyHandler("quiz");
-export const getFlashcards = getLazyHandler("flashcards");
-export const getProject = getLazyHandler("project", (analysis) => analysis.contentType === "tech");
+export const getNotes   = getLazyHandler("notes");
+export const getQuiz    = getLazyHandler("quiz");
 export const getRoadmap = getLazyHandler("roadmap");
-
-// ======================================================
-// GET USER ANALYSES
-// ======================================================
-
-export const getUserAnalyses =
-  async (req, res) => {
-    try {
-      const page =
-        Math.max(
-          1,
-          parseInt(
-            req.query.page,
-            10
-          ) || 1
-        );
-
-      const limit =
-        Math.min(
-          50,
-          Math.max(
-            1,
-            parseInt(
-              req.query.limit,
-              10
-            ) || 10
-          )
-        );
-
-      const skip =
-        (page - 1) * limit;
-
-      const filter = {
-        user: req.user.id,
-      };
-
-      if (
-        req.query.status
-      ) {
-        const validStatuses =
-          [
-            "queued",
-            "processing",
-            "completed",
-            "failed",
-          ];
-
-        if (
-          validStatuses.includes(
-            req.query.status
-          )
-        ) {
-          filter.status =
-            req.query.status;
-        }
-      }
-
-      const search =
-        typeof req.query.search === "string"
-          ? req.query.search.trim()
-          : "";
-
-      if (search) {
-        const escaped = escapeRegExp(search);
-        filter.$or = [
-          { videoTitle: new RegExp(escaped, "i") },
-          { summary: new RegExp(escaped, "i") },
-          { youtubeUrl: new RegExp(escaped, "i") },
-          { contentType: new RegExp(escaped, "i") },
-        ];
-      }
-
-      const allowedSortFields = ["createdAt", "updatedAt", "progress", "status", "duration"];
-      const sortField = allowedSortFields.includes(req.query.sortBy)
-        ? req.query.sortBy
-        : "createdAt";
-      const sortDirection = req.query.sortOrder === "asc" ? 1 : -1;
-
-      const [
-        analyses,
-        total,
-      ] = await Promise.all([
-        Analysis.find(
-          filter
-        )
-          .select(`
-            -notes
-            -rawAI
-            -actionEngine
-            -confusion
-            -project
-            -executionPlan
-            -qa
-          `)
-          .sort({
-            [sortField]: sortDirection,
-          })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
-
-        Analysis.countDocuments(
-          filter
-        ),
-      ]);
-
-      return res
-        .status(200)
-        .json({
-          success: true,
-
-          data: analyses,
-
-          pagination: {
-            total,
-
-            page,
-
-            limit,
-            totalPages:
-              Math.ceil(
-                total / limit
-              ),
-
-            hasNext:
-              page * limit <
-              total,
-
-            hasPrev:
-              page > 1,
-          },
-        });
-    } catch (err) {
-      console.error(
-        "❌ getUserAnalyses error:",
-        err.message
-      );
-
-      return res
-        .status(500)
-        .json({
-          success: false,
-
-          message:
-            "Failed to retrieve analyses",
-        });
-    }
-  };
-
-// ======================================================
-// DELETE
-// ======================================================
-
-export const deleteAnalysis =
-  async (req, res) => {
-    try {
-      const { id } =
-        req.params;
-
-      if (
-        !id ||
-        id.length !== 24
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              "Invalid analysis ID",
-          });
-      }
-
-      const analysis =
-        await Analysis.findOneAndDelete(
-          {
-            _id: id,
-            user:
-              req.user.id,
-          }
-        );
-
-      if (!analysis) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-
-            message:
-              "Analysis not found or access denied",
-          });
-      }
-
-      return res
-        .status(200)
-        .json({
-          success: true,
-
-          message:
-            "Analysis deleted successfully",
-        });
-    } catch (err) {
-      console.error(
-        "❌ deleteAnalysis error:",
-        err.message
-      );
-
-      return res
-        .status(500)
-        .json({
-          success: false,
-
-          message:
-            "Failed to delete analysis",
-        });
-    }
-  };
-
-// ======================================================
-// STATUS
-// ======================================================
-
-export const getAnalysisStatus =
-  async (req, res) => {
-    try {
-      const { id } =
-        req.params;
-
-      if (
-        !id ||
-        id.length !== 24
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              "Invalid analysis ID",
-          });
-      }
-
-      const analysis =
-        await Analysis.findOne(
-          {
-            _id: id,
-            user:
-              req.user.id,
-          },
-
-          {
-            status: 1,
-            progress: 1,
-            error: 1,
-            completedAt: 1,
-          }
-        ).lean();
-
-      if (!analysis) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-
-            message:
-              "Analysis not found",
-          });
-      }
-
-      return res
-        .status(200)
-        .json({
-          success: true,
-
-          status:
-            analysis.status,
-
-          progress:
-            analysis.progress,
-
-          error:
-            analysis.error ||
-            "",
-
-          completedAt:
-            analysis.completedAt ||
-            null,
-        });
-    } catch (err) {
-      console.error(
-        "❌ getAnalysisStatus error:",
-        err.message
-      );
-
-      return res
-        .status(500)
-        .json({
-          success: false,
-
-          message:
-            "Failed to fetch status",
-        });
-    }
-  };

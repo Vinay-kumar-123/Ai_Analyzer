@@ -4,14 +4,13 @@
  * Quiz Prompt
  * ----------------------------------------------------------------------------
  * Responsibility:
- * Generate transcript-grounded quizzes and interview Q&A.
+ * Generate transcript-grounded multiple-choice quizzes.
  *
  * Used ONLY by:
  * quiz.generator.js
  *
  * Generates:
  * - quiz
- * - qa
  * ============================================================================
  */
 
@@ -157,25 +156,6 @@ Questions must be:
 • non repetitive
 
 ==================================================
-Q&A
-==================================================
-
-Generate between 10 and 20 important Q&A.
-
-Every Q&A must contain:
-
-question
-
-answer
-
-Use Q&A suitable for:
-
-• interview
-• revision
-• viva
-• self learning
-
-==================================================
 OUTPUT JSON
 ==================================================
 
@@ -194,12 +174,6 @@ Return ONLY:
       "correctAnswerIndex": 0,
       "explanation": "",
       "difficulty": "medium"
-    }
-  ],
-  "qa": [
-    {
-      "question": "",
-      "answer": ""
     }
   ]
 }

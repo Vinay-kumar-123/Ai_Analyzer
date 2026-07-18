@@ -23,7 +23,7 @@ export const analysisQueue = new Queue(ANALYSIS_QUEUE_NAME, {
 
     backoff: {
       type:  "exponential",
-      delay: 3000, // 3s, 9s, 27s
+      delay: 30000, // 30s, 90s, 270s
     },
 
     removeOnComplete: {

@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+﻿import OpenAI from "openai";
 
 /**
  * ============================================================================
@@ -6,7 +6,6 @@ import OpenAI from "openai";
  * OpenAI Client
  * ----------------------------------------------------------------------------
  * Single OpenAI client instance used across the entire application.
- *
  * DO NOT create new OpenAI() anywhere else.
  * ============================================================================
  */
@@ -20,9 +19,8 @@ for (const key of REQUIRED_ENV) {
 }
 
 /**
- * Models
- * ---------------------------------------------------------------------------
- * Change model here only.
+ * Available models.
+ * Change model strings here only — never hardcode them elsewhere.
  */
 export const AI_MODELS = Object.freeze({
   FAST: "gpt-4o-mini",
@@ -34,16 +32,7 @@ export const AI_MODELS = Object.freeze({
  */
 export const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-
-  /**
-   * 90 seconds
-   */
   timeout: 90_000,
-
-  /**
-   * SDK retries.
-   * Custom retry logic will live inside ai.retry.js
-   */
   maxRetries: 0,
 });
 
@@ -56,24 +45,18 @@ export const DEFAULT_AI_CONFIG = Object.freeze({
 });
 
 /**
- * Frequently used token limits.
+ * Token limits per feature.
+ * FAST model is used for chunked notes processing; SMART for full generations.
  */
 export const TOKEN_LIMITS = Object.freeze({
   SUMMARY: 2500,
-
-  NOTES: 8000,
-
-  QUIZ: 3500,
-
-  FLASHCARDS: 3000,
-
+  NOTES:   8000,
+  QUIZ:    3500,
   ROADMAP: 3000,
-
-  PROJECT: 5000,
 });
 
 /**
- * Helper
+ * Resolve model alias to the actual model string.
  */
 export function getModel(type = "FAST") {
   return AI_MODELS[type] || AI_MODELS.FAST;

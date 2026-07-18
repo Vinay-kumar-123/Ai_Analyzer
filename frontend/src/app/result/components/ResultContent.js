@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { Suspense, lazy, useMemo } from "react";
 
@@ -9,40 +9,32 @@ import React, { Suspense, lazy, useMemo } from "react";
  * ----------------------------------------------------------------------------
  * Responsibilities
  *
- * • Render active tab
- * • Lazy load tab components
- * • Loading fallback
+ * • Render the active tab component
+ * • Lazy-load tab components for bundle splitting
+ * • Provide a loading fallback
  *
- * NEVER
- * - API Calls
- * - Polling
- * - Business Logic
- * - State Management
+ * MVP Tabs: Summary · Key Points · Notes · Roadmap · Quiz
+ *
+ * This component NEVER:
+ * - Calls APIs
+ * - Manages polling
+ * - Contains business logic
+ * - Knows about lazy generation
  * ============================================================================
  */
 
-/*
-|--------------------------------------------------------------------------
-| Lazy Tab Components
-|--------------------------------------------------------------------------
-*/
-
-const SummaryTab = lazy(() => import("./tabs/SummaryTab"));
+const SummaryTab   = lazy(() => import("./tabs/SummaryTab"));
 const KeyPointsTab = lazy(() => import("./tabs/KeyPointsTab"));
-const NotesTab = lazy(() => import("./tabs/NotesTab"));
-const ActionsTab = lazy(() => import("./tabs/ActionsTab"));
-const RoadmapTab = lazy(() => import("./tabs/RoadmapTab"));
-const QATab = lazy(() => import("./tabs/QATab"));
-const QuizTab = lazy(() => import("./tabs/QuizTab"));
+const NotesTab     = lazy(() => import("./tabs/NotesTab"));
+const RoadmapTab   = lazy(() => import("./tabs/RoadmapTab"));
+const QuizTab      = lazy(() => import("./tabs/QuizTab"));
 
 const COMPONENTS = {
-  summary: SummaryTab,
+  summary:   SummaryTab,
   keypoints: KeyPointsTab,
-  notes: NotesTab,
-  actions: ActionsTab,
-  roadmap: RoadmapTab,
-  qa: QATab,
-  quiz: QuizTab,
+  notes:     NotesTab,
+  roadmap:   RoadmapTab,
+  quiz:      QuizTab,
 };
 
 function LoadingFallback() {
@@ -50,9 +42,7 @@ function LoadingFallback() {
     <div className="rounded-2xl border border-white/10 bg-white/5 p-10 backdrop-blur-md">
       <div className="flex items-center gap-3">
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-        <span className="text-gray-300">
-          Loading section...
-        </span>
+        <span className="text-gray-300">Loading section...</span>
       </div>
     </div>
   );
@@ -66,9 +56,10 @@ export default function ResultContent({
   copied,
   buildPDF,
 }) {
-  const ActiveComponent = useMemo(() => {
-    return COMPONENTS[activeTab] || SummaryTab;
-  }, [activeTab]);
+  const ActiveComponent = useMemo(
+    () => COMPONENTS[activeTab] ?? SummaryTab,
+    [activeTab],
+  );
 
   return (
     <Suspense fallback={<LoadingFallback />}>

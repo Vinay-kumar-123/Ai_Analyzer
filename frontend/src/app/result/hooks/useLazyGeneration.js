@@ -6,7 +6,7 @@
  *
  * PURPOSE
  * -------
- * Generates AI content for lazy Result tabs (Notes, Actions, Roadmap, Quiz)
+ * Generates AI content for lazy Result tabs (Notes, Roadmap, Quiz)
  * exactly once per session.  Content that already exists in the analysis
  * object is NEVER re-generated.
  *
@@ -20,8 +20,7 @@
  *  6. Abort on unmount — AbortController prevents memory leaks.
  *  7. StrictMode safe  — idempotent mount/unmount; cache/generated set
  *                        survive the StrictMode double-invoke.
- *  8. Endpoint dedup   — roadmap endpoint shared by Actions + Roadmap.
- *                        One HTTP call satisfies both tabs.
+ *  8. Endpoint dedup   — tabs sharing the same route share one HTTP call.
  *  9. Exponential backoff — HTTP 429 retried at 2 s / 4 s / 8 s with
  *                           Retry-After header respected.
  * 10. Stable callbacks — generate() reference is stable; never recreated
@@ -40,10 +39,9 @@
  * The hook dispatches by tab.ROUTE (backend endpoint), not by tab.id.
  * This is the fundamental deduplication key.
  *
- *   Actions  tab → route "roadmap" ┐
- *   Roadmap  tab → route "roadmap" ┘ → one HTTP request → two tab results
- *   Notes    tab → route "notes"   → one HTTP request
- *   Quiz     tab → route "quiz"    → one HTTP request
+ *   Notes   tab → route "notes"   → one HTTP request
+ *   Roadmap tab → route "roadmap" → one HTTP request
+ *   Quiz    tab → route "quiz"    → one HTTP request
  *
  * ============================================================================
  */
@@ -57,10 +55,10 @@ import { RESULT_TAB_MAP } from "../constants/tabs.js";
    ========================================================================== */
 
 /** Maximum retry attempts for HTTP 429. */
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 10;
 
 /** Exponential backoff delays (ms) indexed by attempt number (0-based). */
-const RETRY_DELAYS = [2_000, 4_000, 8_000];
+const RETRY_DELAYS = [3_000, 5_000, 10_000, 15_000];
 
 /* ============================================================================
    Module-level endpoint group map
@@ -109,17 +107,7 @@ const ENDPOINT_GROUP_MAP = buildEndpointGroupMap();
  * @returns {*}           - Content for this tab, or undefined.
  */
 function extractTabContent(tabId, data) {
-  if (!data) return undefined;
-
-  const tab = RESULT_TAB_MAP[tabId];
-  if (!tab) return undefined;
-
-  // Prefer the field matching cacheKey
-  if (Object.prototype.hasOwnProperty.call(data, tab.cacheKey)) {
-    return data[tab.cacheKey];
-  }
-
-  // Fallback: single-key endpoint — return entire payload
+  // Return the entire payload because the UI merges it into the analysis state object.
   return data;
 }
 
@@ -131,7 +119,7 @@ function extractTabContent(tabId, data) {
  * @param {string}      tabId
  * @returns {boolean}
  */
-function analysisHasContent(analysis, tabId) {
+export function analysisHasContent(analysis, tabId) {
   if (!analysis) return false;
 
   const tab = RESULT_TAB_MAP[tabId];
@@ -161,6 +149,7 @@ function analysisHasContent(analysis, tabId) {
  * @property {Function} generate     - (tabId: string) => Promise<boolean>
  * @property {boolean}  generating   - True while any HTTP request is in flight.
  * @property {Function} isCached     - (tabId: string) => boolean
+ * @property {Function} hasGenerated - (tabId: string) => boolean
  * @property {Function} isInFlight   - (tabId: string) => boolean
  * @property {Function} cancel       - (tabId: string) => void
  */
@@ -280,6 +269,11 @@ export function useLazyGeneration({
     cacheRef.current.set(tab.cacheKey, content);
   }, []);
 
+  /** Returns true if the tab has already been generated successfully this session. */
+  const hasGenerated = useCallback((tabId) => {
+    return generatedTabsRef.current.has(tabId);
+  }, []);
+
   /* --------------------------------------------------------------------------
      In-flight helper
      -------------------------------------------------------------------------- */
@@ -370,6 +364,11 @@ export function useLazyGeneration({
     if (attempt >= MAX_RETRIES) {
       retriesRef.current.delete(route);
       inFlightRoutesRef.current.delete(route);
+      
+      // If no other routes are in flight, turn off generating indicator
+      if (inFlightRoutesRef.current.size === 0) {
+        setGenerating(false);
+      }
       return;
     }
 
@@ -551,6 +550,8 @@ export function useLazyGeneration({
     executeRequest,
   ]);
 
+
+
   /* --------------------------------------------------------------------------
      Lifecycle — mount / unmount
      -------------------------------------------------------------------------- */
@@ -603,6 +604,9 @@ export function useLazyGeneration({
 
     /** (tabId: string) => boolean — memory cache hit check */
     isCached,
+
+    /** (tabId: string) => boolean — tab generated successfully this session */
+    hasGenerated,
 
     /** (tabId: string) => boolean — route in-flight check */
     isInFlight,

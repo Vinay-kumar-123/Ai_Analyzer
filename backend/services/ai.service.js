@@ -10,29 +10,19 @@ import {
 import { generateSummary } from "../generators/summary.generator.js";
 import { executeGenerator } from "../generators/generator.registry.js";
 import { extractVideoId } from "../utils/youtubeMeta.js";
-import {
-  safeString,
-  safeStringArray,
-  normalizeOutput as sharedNormalizeOutput,
-} from "./shared/normalizers.js";
 
 export { extractVideoId };
-export { safeString, safeStringArray } from "./shared/normalizers.js";
 
+// ─── Timeout wrapper ───────────────────────────────────────────────────────────
 const withTimeout = (promise, ms, label = "Operation") => {
   let timer;
-
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${ms}ms`));
-    }, ms);
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
   });
-
-  return Promise.race([promise, timeout]).finally(() => {
-    clearTimeout(timer);
-  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 };
 
+// ─── Transcript validation ─────────────────────────────────────────────────────
 const validateTranscript = (transcript) => {
   if (!transcript || typeof transcript !== "string") {
     throw new Error("Transcript is required.");
@@ -40,19 +30,12 @@ const validateTranscript = (transcript) => {
 
   const trimmed = transcript.trim();
 
-  if (!trimmed) {
-    throw new Error("Transcript is empty.");
-  }
-
-  if (trimmed.length < MIN_TRANSCRIPT_CHARS) {
-    throw new Error(MESSAGES.TRANSCRIPT_TOO_SHORT);
-  }
-
-  if (trimmed.length > MAX_TRANSCRIPT_CHARS) {
-    throw new Error(MESSAGES.TRANSCRIPT_TOO_LARGE);
-  }
+  if (!trimmed) throw new Error("Transcript is empty.");
+  if (trimmed.length < MIN_TRANSCRIPT_CHARS) throw new Error(MESSAGES.TRANSCRIPT_TOO_SHORT);
+  if (trimmed.length > MAX_TRANSCRIPT_CHARS) throw new Error(MESSAGES.TRANSCRIPT_TOO_LARGE);
 };
 
+// ─── Transcript fetch ──────────────────────────────────────────────────────────
 export const getTranscript = async (youtubeUrl, maxRetries = 3) => {
   const videoId = extractVideoId(youtubeUrl);
 
@@ -93,13 +76,10 @@ export const getTranscript = async (youtubeUrl, maxRetries = 3) => {
         error?.message === MESSAGES.TRANSCRIPT_TOO_SHORT ||
         error?.message === MESSAGES.INVALID_URL;
 
-      if (nonRetryable) {
-        throw error;
-      }
+      if (nonRetryable) throw error;
 
       if (attempt < maxRetries) {
         await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
-        continue;
       }
     }
   }
@@ -107,53 +87,34 @@ export const getTranscript = async (youtubeUrl, maxRetries = 3) => {
   throw new Error(`Transcript unavailable: ${lastError?.message || "unknown error"}`);
 };
 
+// ─── Initial analysis (Summary + KeyPoints) ────────────────────────────────────
 export const runInitialAnalysis = async ({
   youtubeUrl,
   goal = "student",
   language = "english",
 }) => {
   const transcript = await getTranscript(youtubeUrl);
-  const summary = await generateSummary({
-    transcript,
-    goal,
-    language,
-  });
-
-  return {
-    transcript,
-    ...normalizeOutput(summary),
-  };
+  const summary = await generateSummary({ transcript, goal, language });
+  return { transcript, ...summary };
 };
 
+// ─── Lazy generation ───────────────────────────────────────────────────────────
+// Returns the raw generator output.
+// Normalization is done once by the caller (performLazyGeneration in controller).
 export const runLazyGeneration = async ({
   transcript,
   goal = "student",
   language = "english",
-  type,
-  memory,
   part,
 }) => {
   validateTranscript(transcript);
 
-  const generatorType = type || part || "notes";
-  const generated = await executeGenerator(generatorType, {
-    transcript,
-    goal,
-    language,
-    memory,
-  });
-
-  return normalizeOutput(generated);
+  return executeGenerator(part || "notes", { transcript, goal, language });
 };
-
-export const normalizeOutput = sharedNormalizeOutput;
 
 export default {
   extractVideoId,
   getTranscript,
   runInitialAnalysis,
   runLazyGeneration,
-  normalizeOutput,
-  safeString,
-  safeStringArray,
 };

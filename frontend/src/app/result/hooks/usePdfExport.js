@@ -543,34 +543,6 @@ function renderNotes(ctx, analysis) {
 }
 
 /**
- * Render the Action Steps section.
- *
- * @param {object} ctx
- * @param {object} analysis
- */
-function renderActions(ctx, analysis) {
-  drawTitle(ctx, "AI Action Plan");
-
-  const actions = Array.isArray(analysis.actionSteps) ? analysis.actionSteps : [];
-
-  if (!actions.length) {
-    drawBody(ctx, "No action steps available.");
-    return;
-  }
-
-  for (let i = 0; i < actions.length; i++) {
-    const action = toDisplayString(actions[i]);
-    if (!action.trim()) continue;
-
-    ensureSpace(ctx, 14);
-
-    drawItemLabel(ctx, `Step ${i + 1}`);
-    drawBody(ctx, action, 4);
-    drawSpacer(ctx, 3);
-  }
-}
-
-/**
  * Render the Learning Roadmap section.
  *
  * @param {object} ctx
@@ -735,16 +707,6 @@ function renderFull(ctx, analysis) {
     drawDivider(ctx);
   }
 
-  // Action Steps block
-  const actions = Array.isArray(analysis.actionSteps) ? analysis.actionSteps : [];
-  if (actions.length > 0) {
-    drawSubtitle(ctx, "Action Steps");
-    actions.forEach((a, i) => {
-      drawBody(ctx, `${i + 1}. ${toDisplayString(a)}`);
-    });
-    drawDivider(ctx);
-  }
-
   // Roadmap block
   const roadmap = Array.isArray(analysis.roadmap) ? analysis.roadmap : [];
   if (roadmap.length > 0) {
@@ -794,11 +756,6 @@ const TYPE_CONFIG = Object.freeze({
     title:    "AI Notes",
     filename: "ai-notes",
     render:   renderNotes,
-  },
-  actions: {
-    title:    "AI Action Plan",
-    filename: "ai-actions",
-    render:   renderActions,
   },
   roadmap: {
     title:    "Learning Roadmap",

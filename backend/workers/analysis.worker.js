@@ -7,13 +7,15 @@ import dotenv from "dotenv";
 import { connection, redis } from "../config/redis.js";
 import Analysis from "../models/Analysis.js";
 import User from "../models/User.js";
+import UserAnalysis from "../models/UserAnalysis.js";
 import connectDB from "../config/db.js";
 
+import { runInitialAnalysis } from "../services/ai.service.js";
+
 import {
-  runInitialAnalysis,
   safeString,
   safeStringArray,
-} from "../services/ai.service.js";
+} from "../services/shared/normalizers.js";
 
 import {
   MAX_VIDEO_DURATION_SECONDS,
@@ -88,40 +90,44 @@ const updateProgress = async (analysisId, progress, extra = {}) => {
 };
 
 // ── Atomic credit deduction ────────────────────────────────────────────────────
-const deductCredits = async (analysisId, userId, credits, session = null) => {
+const deductCredits = async (analysisId, session = null) => {
   const analysis = await Analysis.findById(analysisId)
-    .select("creditsDeducted")
+    .select("creditsUsed")
     .session(session)
     .lean();
 
   if (!analysis) throw new Error("Analysis not found during credit deduction");
-  if (analysis.creditsDeducted) {
-    console.log(`💡 Credits already deducted for ${analysisId} — skipping`);
-    return;
-  }
 
-  const updatedUser = await User.findOneAndUpdate(
-    { _id: userId, credits: { $gte: credits } },
-    {
-      $inc: { credits: -credits, totalRequests: 1, creditsUsed: credits },
-      $set: { lastActivity: new Date() },
-    },
-    { returnDocument: "after", session },
-  );
+  const credits = analysis.creditsUsed || 1;
 
-  if (!updatedUser) {
-    throw new Error(
-      `Credit deduction failed: user ${userId} may have insufficient credits (required: ${credits})`,
+  // Find all UserAnalysis mappings linked to this analysis that are unpaid
+  const unpaidMappings = await UserAnalysis.find({ analysis: analysisId, paid: false })
+    .session(session);
+
+  for (const mapping of unpaidMappings) {
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: mapping.user, credits: { $gte: credits } },
+      {
+        $inc: { credits: -credits, totalRequests: 1, creditsUsed: credits },
+        $set: { lastActivity: new Date() },
+      },
+      { returnDocument: "after", session },
     );
+
+    if (!updatedUser) {
+      console.warn(`User ${mapping.user} has insufficient credits during worker run — removing access`);
+      await UserAnalysis.deleteOne({ _id: mapping._id }, { session });
+      continue;
+    }
+
+    await UserAnalysis.updateOne(
+      { _id: mapping._id },
+      { $set: { paid: true } },
+      { session },
+    );
+
+    console.log(`💳 Deducted ${credits} credits from user ${mapping.user}`);
   }
-
-  await Analysis.findByIdAndUpdate(
-    analysisId,
-    { $set: { creditsDeducted: true } },
-    { returnDocument: "after", session },
-  );
-
-  console.log(`💳 Deducted ${credits} credits from user ${userId}`);
 };
 
 // ── Main job processor ─────────────────────────────────────────────────────────
@@ -219,25 +225,24 @@ const processJob = async (job) => {
         {
           $set: {
             contentType: safeString(normalizedSummary.contentType || "general").toLowerCase(),
-            summary: safeString(normalizedSummary.summary),
-            outcome: safeString(normalizedSummary.outcome),
-            keyPoints: safeStringArray(normalizedSummary.keyPoints).slice(0, 100),
-            learningPath: safeStringArray(normalizedSummary.learningPath),
+            summary:     safeString(normalizedSummary.summary),
+            outcome:     safeString(normalizedSummary.outcome),
+            keyPoints:   safeStringArray(normalizedSummary.keyPoints).slice(0, 100),
 
-            // CRITICAL: transcript saved here so all lazy routes work
-            transcript: transcript.slice(0, MAX_TRANSCRIPT_CHARS),
+            // CRITICAL: transcript saved here so all lazy routes can use it
+            transcript:       transcript.slice(0, MAX_TRANSCRIPT_CHARS),
             transcriptLength: transcript.length,
 
-            status: "completed",
-            progress: 100,
-            completedAt: new Date(),
+            status:         "completed",
+            progress:       100,
+            completedAt:    new Date(),
             processingTime: Date.now() - start,
           },
         },
         { returnDocument: "after", session },
       );
 
-      await deductCredits(analysisId, userId, credits, session);
+      await deductCredits(analysisId, session);
     });
   } finally {
     await session.endSession();

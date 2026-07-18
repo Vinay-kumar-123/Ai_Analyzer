@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
+import mongoSanitize from "./middleware/mongoSanitize.js";
 
 
 import hpp from "hpp";
@@ -50,6 +51,7 @@ app.use(
 //
 // Prevent NoSQL Injection
 //
+app.use(mongoSanitize());
 
 
 //
@@ -138,10 +140,7 @@ const globalLimiter = rateLimit({
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many requests. Please try again later.",
-  },
+  message: { success: false, message: "Too many requests. Please try again later." },
 });
 
 const authLimiter = rateLimit({
@@ -149,21 +148,7 @@ const authLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many auth attempts. Please try again later.",
-  },
-});
-
-const analyzeLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many analysis requests. Please slow down.",
-  },
+  message: { success: false, message: "Too many auth attempts. Please try again later." },
 });
 
 app.use(globalLimiter);
@@ -202,11 +187,7 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/auth", authLimiter, authRoutes);
 
-app.use(
-  "/api/analyze",
-  analyzeLimiter,
-  analyzeRoutes
-);
+app.use("/api/analyze", analyzeRoutes);
 
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/plans", planRoutes);

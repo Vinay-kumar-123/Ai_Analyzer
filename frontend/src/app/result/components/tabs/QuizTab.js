@@ -49,7 +49,7 @@ export default function QuizTab({
         `B. ${item.options?.[1] || ""}`,
         `C. ${item.options?.[2] || ""}`,
         `D. ${item.options?.[3] || ""}`,
-        `Answer: ${item.answer || ""}`,
+        `Answer: ${item.options?.[item.correctAnswerIndex] || ""}`,
       ].join("\n");
     })
     .join("\n\n-------------------------\n\n");
@@ -179,7 +179,7 @@ export default function QuizTab({
                 const letters = ["A", "B", "C", "D"];
 
                 const isCorrect =
-                  option === item.answer;
+                  optionIndex === item.correctAnswerIndex;
 
                 return (
                   <div

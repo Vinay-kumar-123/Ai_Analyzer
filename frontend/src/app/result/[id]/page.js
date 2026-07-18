@@ -11,7 +11,7 @@ import ResultContent from "@/app/result/components/ResultContent";
 import { usePolling }        from "@/app/result/hooks/usePolling";
 import { useResultState }    from "@/app/result/hooks/useResultState";
 import { useTabManager }     from "@/app/result/hooks/useTabManager";
-import { useLazyGeneration } from "@/app/result/hooks/useLazyGeneration";
+import { useLazyGeneration, analysisHasContent } from "@/app/result/hooks/useLazyGeneration";
 
 import { getAnalysis } from "@/app/result/services/resultApi";
 
@@ -115,6 +115,11 @@ export default function ResultPage() {
 
       const result = await getAnalysis(id);
 
+      if (result.status === 401) {
+        router.push("/login");
+        return;
+      }
+
       if (!result.success) {
         throw new Error(result.message || "Unable to load analysis.");
       }
@@ -183,7 +188,7 @@ export default function ResultPage() {
     [setError],
   );
 
-  const { generate, generating } = useLazyGeneration({
+  const { generate, generating, hasGenerated } = useLazyGeneration({
     analysisId: id,
     analysis,
     activeTab,
@@ -246,8 +251,8 @@ export default function ResultPage() {
   | Screens
   |-------------------------------------------------------------------------- */
 
-  if (loading && !analysis) {
-    return <LoadingScreen />;
+  if ((loading && !analysis) || analysis?.status === "queued" || analysis?.status === "processing") {
+    return <LoadingScreen data={analysis} />;
   }
 
   if (error) {
@@ -279,7 +284,7 @@ export default function ResultPage() {
       <ResultContent
         activeTab={activeTab}
         analysis={analysis}
-        loading={generating}
+        loading={generating || (currentTab?.lazy && !hasGenerated(activeTab) && !analysisHasContent(analysis, activeTab))}
         copy={copy}
         copied={copied}
         buildPDF={buildPDF}

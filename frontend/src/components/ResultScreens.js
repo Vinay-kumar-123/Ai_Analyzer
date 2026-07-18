@@ -7,7 +7,7 @@ const STAGES = [
   { from: 15, to: 30, emoji: "📡", label: "Fetching transcript…", sub: "Pulling the video's spoken content" },
   { from: 30, to: 55, emoji: "🧠", label: "Deep-reading the content…", sub: "AI is understanding every concept and example" },
   { from: 55, to: 75, emoji: "✍️", label: "Writing your premium notes…", sub: "Building detailed structured study material" },
-  { from: 75, to: 90, emoji: "🚀", label: "Building your action system…", sub: "Creating roadmap, projects, plans and Q&A" },
+  { from: 75, to: 90, emoji: "🚀", label: "Building your learning roadmap…", sub: "Creating your personalized step-by-step roadmap" },
   { from: 90, to: 101, emoji: "✅", label: "Finalizing your analysis…", sub: "Almost there — saving your learning system" },
 ];
 
@@ -96,8 +96,8 @@ export const LoadingScreen = ({ data }) => {
   );
 };
 
-export const FailedScreen = ({ data, router }) => {
-  const raw = data?.error || "";
+export const FailedScreen = ({ analysis, router }) => {
+  const raw = analysis?.error || "";
   const isUserFacing =
     raw.includes("4 hours") ||
     raw.includes("premium AI quality") ||

@@ -37,6 +37,15 @@ export function isRetryableError(error) {
     error.statusCode ||
     error.code;
 
+  // "Request too large" 429s are NOT retryable — the token count does not
+  // change between attempts, so retrying wastes tokens and time.
+  if (
+    status === 429 &&
+    (message.includes("too large") || message.includes("tokens per min"))
+  ) {
+    return false;
+  }
+
   if (
     status === 408 ||
     status === 409 ||

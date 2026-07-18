@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import Link from "next/link";
 
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 import {
   LayoutDashboard,
@@ -32,6 +32,8 @@ export default function Navbar() {
     useAuth();
 
   const router = useRouter();
+  const pathname = usePathname();
+  const isDarkTheme = pathname?.startsWith("/result") || pathname?.startsWith("/login");
 
   // ======================================================
   // STATE
@@ -107,7 +109,11 @@ export default function Navbar() {
           NAVBAR
       ====================================================== */}
 
-      <nav className="sticky top-0 z-50 border-b border-white/10 bg-white/80 backdrop-blur-2xl shadow-sm">
+      <nav className={`sticky top-0 z-50 border-b transition-colors duration-300 ${
+        isDarkTheme
+          ? "border-white/10 bg-[#080a12]/80 text-white"
+          : "border-slate-200 bg-white/85 text-slate-900"
+      } backdrop-blur-2xl shadow-sm`}>
 
         <div className="max-w-7xl mx-auto px-4 lg:px-6">
 
@@ -124,7 +130,7 @@ export default function Navbar() {
                 href="/dashboard"
                 className="flex items-center gap-3"
               >
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center shadow-lg">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center shadow-md">
 
                   <Sparkles className="text-white w-6 h-6" />
 
@@ -136,7 +142,7 @@ export default function Navbar() {
                     AI Analyzer
                   </h1>
 
-                  <p className="text-xs text-gray-500 -mt-1">
+                  <p className={`text-xs -mt-1 ${isDarkTheme ? "text-gray-400" : "text-gray-500"}`}>
                     Learning OS
                   </p>
 
@@ -145,7 +151,7 @@ export default function Navbar() {
               </Link>
 
               {/* DESKTOP LINKS */}
-              <div className="hidden lg:flex items-center gap-3">
+              <div className="hidden lg:flex items-center gap-2">
 
                 {links.map(
                   (
@@ -161,7 +167,11 @@ export default function Navbar() {
                         href={
                           link.href
                         }
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition font-medium"
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl transition font-medium ${
+                          isDarkTheme
+                            ? "text-gray-300 hover:bg-white/5 hover:text-white"
+                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
                       >
                         <Icon size={18} />
 
@@ -196,7 +206,7 @@ export default function Navbar() {
                     scale: 1,
                   }}
 
-                  className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded-2xl text-sm font-medium"
+                  className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-2 rounded-2xl text-sm font-medium"
                 >
                   <AlertTriangle
                     size={16}
@@ -207,7 +217,7 @@ export default function Navbar() {
               )}
 
               {/* CREDITS */}
-              <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-5 py-3 rounded-2xl shadow-lg">
+              <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-5 py-3 rounded-2xl shadow-md">
 
                 <div className="flex items-center gap-3">
 
@@ -233,9 +243,9 @@ export default function Navbar() {
 
               {/* EXPIRY */}
               {expiryDate && (
-                <div className="bg-gray-100 px-4 py-3 rounded-2xl">
+                <div className={`px-4 py-3 rounded-2xl ${isDarkTheme ? "bg-white/5 text-white" : "bg-slate-100 text-slate-800"}`}>
 
-                  <div className="text-xs text-gray-500">
+                  <div className={`text-xs ${isDarkTheme ? "text-gray-400" : "text-gray-500"}`}>
                     Validity
                   </div>
 
@@ -252,7 +262,11 @@ export default function Navbar() {
               {/* BUY */}
               <Link
                 href="/buy-credits"
-                className="flex items-center gap-2 bg-black text-white hover:bg-gray-900 px-5 py-3 rounded-2xl font-semibold transition shadow-lg"
+                className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-semibold transition shadow-sm ${
+                  isDarkTheme
+                    ? "bg-white text-slate-950 hover:bg-slate-100"
+                    : "bg-slate-900 text-white hover:bg-slate-850"
+                }`}
               >
                 <CreditCard
                   size={18}
@@ -262,9 +276,11 @@ export default function Navbar() {
               </Link>
 
               {/* USER */}
-              <div className="flex items-center gap-3 bg-gray-100 px-4 py-3 rounded-2xl">
+              <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl ${
+                isDarkTheme ? "bg-white/5 text-white" : "bg-slate-100 text-slate-800"
+              }`}>
 
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold shadow-sm">
 
                   {user?.name
                     ?.charAt(0)
@@ -275,7 +291,7 @@ export default function Navbar() {
 
                 <div>
 
-                  <div className="text-xs text-gray-500">
+                  <div className={`text-xs ${isDarkTheme ? "text-gray-400" : "text-gray-500"}`}>
                     Logged in
                   </div>
 
@@ -293,7 +309,7 @@ export default function Navbar() {
                 onClick={
                   handleLogout
                 }
-                className="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-5 py-3 rounded-2xl font-semibold transition"
+                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-2xl font-semibold transition"
               >
                 <LogOut
                   size={18}
@@ -314,7 +330,9 @@ export default function Navbar() {
                   !mobileOpen
                 )
               }
-              className="lg:hidden w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center"
+              className={`lg:hidden w-12 h-12 rounded-2xl flex items-center justify-center transition ${
+                isDarkTheme ? "bg-white/5 hover:bg-white/10" : "bg-slate-100 hover:bg-slate-200"
+              }`}
             >
               {mobileOpen ? (
                 <X />

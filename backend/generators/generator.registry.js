@@ -1,75 +1,45 @@
-/**
+﻿/**
  * ============================================================================
  * AI Learning OS
  * Generator Registry
  * ----------------------------------------------------------------------------
  * Central registry for all AI generators.
  *
- * Responsibilities:
- * - Register generators
- * - Resolve generator by type
- * - Prevent invalid generator calls
- * - Single source of truth
+ * MVP generators:
+ *   notes · quiz · roadmap
  *
+ * Notes uses a chunk+synthesis pipeline (see notes.generator.js).
+ * Quiz and Roadmap send a truncated transcript to a single SMART model call.
  * ============================================================================
  */
 
-import { generateNotes } from "./notes.generator.js";
-import { generateQuiz } from "./quiz.generator.js";
-import { generateFlashcards } from "./flashcards.generator.js";
+import { generateNotes   } from "./notes.generator.js";
+import { generateQuiz    } from "./quiz.generator.js";
 import { generateRoadmap } from "./roadmap.generator.js";
-import { generateProject } from "./project.generator.js";
 
-/**
- * Registered generators.
- */
 export const GENERATORS = Object.freeze({
-  notes: generateNotes,
-  quiz: generateQuiz,
-  flashcards: generateFlashcards,
+  notes:   generateNotes,
+  quiz:    generateQuiz,
   roadmap: generateRoadmap,
-  project: generateProject,
 });
 
-/**
- * Check whether a generator exists.
- */
 export function hasGenerator(type) {
-  return Object.prototype.hasOwnProperty.call(
-    GENERATORS,
-    type,
-  );
+  return Object.prototype.hasOwnProperty.call(GENERATORS, type);
 }
 
-/**
- * Return generator function.
- */
 export function getGenerator(type) {
   if (!hasGenerator(type)) {
-    throw new Error(
-      `Unsupported generator: ${type}`,
-    );
+    throw new Error(`Unsupported generator: "${type}". Available: ${Object.keys(GENERATORS).join(", ")}`);
   }
-
   return GENERATORS[type];
 }
 
-/**
- * Return all supported generator names.
- */
 export function getAvailableGenerators() {
   return Object.keys(GENERATORS);
 }
 
-/**
- * Execute a generator.
- */
-export async function executeGenerator(
-  type,
-  payload,
-) {
+export async function executeGenerator(type, payload) {
   const generator = getGenerator(type);
-
   return generator(payload);
 }
 

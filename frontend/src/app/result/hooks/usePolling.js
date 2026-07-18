@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { getAnalysis } from "../services/resultApi.js";
+import { getAnalysisStatus } from "../services/resultApi.js";
 
 /**
  * ============================================================================
@@ -99,7 +99,7 @@ export function usePolling({
     controllerRef.current = new AbortController();
 
     try {
-      const result = await getAnalysis(analysisId, controllerRef.current.signal);
+      const result = await getAnalysisStatus(analysisId, controllerRef.current.signal);
 
       if (result.status === 429) {
         intervalRef.current = Math.min(intervalRef.current * 2, MAX_INTERVAL);
