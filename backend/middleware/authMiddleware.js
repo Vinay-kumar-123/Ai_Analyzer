@@ -72,9 +72,9 @@ export const protect = async (req, res, next) => {
       }
     }
 
-    // ✅ FINAL USER CHECK
+    // ✅ FINAL USER CHECK (select credits and creditsExpiry for expiry resolution)
     const user = await User.findById(decoded.id).select(
-      "_id role"
+      "_id role credits creditsExpiry"
     );
 
     if (!user) {
@@ -82,6 +82,12 @@ export const protect = async (req, res, next) => {
         success: false,
         message: "User no longer exists",
       });
+    }
+
+    // 🔥 Dynamic credit expiry check & reset (on-demand database update)
+    if (user.creditsExpiry && new Date() > user.creditsExpiry && user.credits > 0) {
+      user.credits = 0;
+      await User.updateOne({ _id: user._id }, { $set: { credits: 0 } });
     }
 
     // ✅ Attach user to request

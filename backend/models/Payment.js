@@ -5,7 +5,13 @@ const paymentSchema = new mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
 
     orderId: { type: String, index: true },
-    paymentId: { type: String, unique: true, index: true },
+    paymentId: {
+      type: String,
+      index: {
+        unique: true,
+        partialFilterExpression: { paymentId: { $type: "string" } },
+      },
+    },
 
     amount: Number,
     currency: String,

@@ -30,14 +30,12 @@ export default function ResultTabs({
 
   return (
     <nav
-      className="mb-8 overflow-x-auto"
-      aria-label="Result Navigation"
+      className="mb-8 overflow-x-auto select-none no-scrollbar"
+      aria-label="Workspace Navigation"
     >
-      <div className="flex w-max min-w-full gap-3 rounded-2xl border border-white/10 bg-white/5 p-2 backdrop-blur-md">
-
+      <div className="flex w-max min-w-full gap-1.5 rounded-2xl border border-white/10 bg-[#0b0f19]/30 p-1.5 backdrop-blur-md">
         {tabs.map((tab) => {
           const Icon = tab.icon;
-
           const active = activeTab === tab.id;
 
           return (
@@ -46,20 +44,17 @@ export default function ResultTabs({
               type="button"
               onClick={() => onTabChange(tab.id)}
               aria-current={active ? "page" : undefined}
-              className={[
-                "flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-medium transition-all duration-200 whitespace-nowrap",
+              className={`flex items-center gap-2.5 rounded-xl px-5 py-3 text-xs font-black uppercase tracking-wider transition-all duration-200 whitespace-nowrap outline-none ${
                 active
-                  ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                  : "text-gray-300 hover:bg-white/10 hover:text-white",
-              ].join(" ")}
+                  ? "bg-blue-600 text-white shadow-lg shadow-blue-500/10"
+                  : "text-slate-400 hover:bg-white/5 hover:text-white"
+              }`}
             >
-              {Icon && <Icon size={18} />}
-
+              {Icon && <Icon size={14} />}
               <span>{tab.label}</span>
             </button>
           );
         })}
-
       </div>
     </nav>
   );

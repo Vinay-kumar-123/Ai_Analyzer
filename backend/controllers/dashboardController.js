@@ -76,35 +76,88 @@ export const getCreditBalance = async (req, res, next) => {
 
 // ---------------- GET ANALYSIS HISTORY (PAGINATED) ----------------
 
+const escapeRegExp = (string) => {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+};
+
 export const getAnalysisHistory = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    // ✅ Pagination (VERY IMPORTANT)
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(20, parseInt(req.query.limit) || 10);
+    // ✅ Pagination parameters
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
 
-    const [userAnalyses, total] = await Promise.all([
-      UserAnalysis.find({ user: userId })
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate({
-          path: "analysis",
-          select: "videoTitle youtubeUrl thumbnail status creditsUsed createdAt language",
-        })
-        .lean(),
+    // ✅ Query filters
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    const status = typeof req.query.status === "string" ? req.query.status : "all";
+    const language = typeof req.query.language === "string" ? req.query.language : "all";
+    const goal = typeof req.query.goal === "string" ? req.query.goal : "all";
+    const sortBy = typeof req.query.sortBy === "string" ? req.query.sortBy : "newest";
 
-      UserAnalysis.countDocuments({ user: userId }),
-    ]);
+    const matchConditions = {};
+
+    if (status !== "all") {
+      matchConditions["analysisDetails.status"] = status;
+    }
+    if (language !== "all") {
+      matchConditions["analysisDetails.language"] = language.toLowerCase();
+    }
+    if (goal !== "all") {
+      matchConditions["analysisDetails.goal"] = goal.toLowerCase();
+    }
+
+    if (search) {
+      const searchRegex = new RegExp(escapeRegExp(search), "i");
+      matchConditions.$or = [
+        { "analysisDetails.videoTitle": searchRegex },
+        { "analysisDetails.channelName": searchRegex }
+      ];
+    }
+
+    const sortStage = {};
+    if (sortBy === "oldest") {
+      sortStage["createdAt"] = 1;
+    } else {
+      sortStage["createdAt"] = -1; // Default newest first
+    }
+
+    // Single DB round-trip count and slice facet pipeline
+    const facetPipeline = [
+      { $match: { user: new mongoose.Types.ObjectId(userId) } },
+      {
+        $lookup: {
+          from: "analyses",
+          localField: "analysis",
+          foreignField: "_id",
+          as: "analysisDetails"
+        }
+      },
+      { $unwind: "$analysisDetails" },
+      { $match: matchConditions },
+      {
+        $facet: {
+          metadata: [{ $count: "total" }],
+          data: [
+            { $sort: sortStage },
+            { $skip: skip },
+            { $limit: limit }
+          ]
+        }
+      }
+    ];
+
+    const result = await UserAnalysis.aggregate(facetPipeline);
+    const total = result[0]?.metadata[0]?.total || 0;
+    const userAnalyses = result[0]?.data || [];
 
     const analyses = userAnalyses
       .map((ua) => {
-        if (!ua.analysis) return null;
+        if (!ua.analysisDetails) return null;
         return {
-          ...ua.analysis,
-          _id: ua.analysis._id,
+          ...ua.analysisDetails,
+          _id: ua.analysisDetails._id,
           createdAt: ua.createdAt,
         };
       })
@@ -119,6 +172,8 @@ export const getAnalysisHistory = async (req, res, next) => {
           page,
           limit,
           totalPages: Math.ceil(total / limit),
+          hasNextPage: page * limit < total,
+          hasPreviousPage: page > 1,
         },
       },
     });

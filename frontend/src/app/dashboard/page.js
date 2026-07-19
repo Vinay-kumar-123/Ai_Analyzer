@@ -3,10 +3,12 @@
 import {
   useEffect,
   useState,
+  Suspense,
 } from "react";
 
 import {
   useRouter,
+  useSearchParams,
 } from "next/navigation";
 
 import Link from "next/link";
@@ -41,7 +43,7 @@ import { useAuth } from "@/contexts/AuthContext";
 const API =
   process.env.NEXT_PUBLIC_API_URL;
 
-export default function DashboardPage() {
+function DashboardContent() {
   // ======================================================
   // AUTH
   // ======================================================
@@ -53,117 +55,183 @@ export default function DashboardPage() {
 
   const router = useRouter();
 
+  const searchParams = useSearchParams();
+
   // ======================================================
-  // STATE
+  // DERIVED STATE (Single source of truth from URL params)
   // ======================================================
+  const currentPage = parseInt(searchParams.get("page"), 10) || 1;
+  const search = searchParams.get("search") || "";
+  const statusFilter = searchParams.get("status") || "all";
+  const languageFilter = searchParams.get("language") || "all";
+  const goalFilter = searchParams.get("goal") || "all";
+  const sortBy = searchParams.get("sortBy") || "newest";
 
-  const [stats, setStats] =
-    useState(null);
-
-  const [credits, setCredits] =
-    useState(0);
-
-  const [history, setHistory] =
-    useState([]);
-
-  const [
-    pageLoading,
-    setPageLoading,
-  ] = useState(true);
+  // Local state for the search text input (for debouncing updates)
+  const [searchInput, setSearchInput] = useState(search);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [stats, setStats] = useState(null);
+  const [credits, setCredits] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [pagination, setPagination] = useState({
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  });
 
   // ======================================================
   // AUTH GUARD
   // ======================================================
-
   useEffect(() => {
     if (!loading && !user) {
       router.push("/login");
     }
-  }, [
-    user,
-    loading,
-    router,
-  ]);
+  }, [user, loading, router]);
 
   // ======================================================
-  // FETCH
+  // URL SEARCHPARAM SYNCS & DEBOUNCING
   // ======================================================
+  useEffect(() => {
+    setSearchInput(search);
+  }, [search]);
 
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (searchInput !== search) {
+        const newParams = new URLSearchParams(window.location.search);
+        if (searchInput.trim()) {
+          newParams.set("search", searchInput.trim());
+        } else {
+          newParams.delete("search");
+        }
+        newParams.set("page", "1"); // Reset page when query changes
+        router.push(`/dashboard?${newParams.toString()}`);
+      }
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchInput, search, router]);
+
+  const handleFilterChange = (key, val) => {
+    const newParams = new URLSearchParams(window.location.search);
+    if (val === "all" || !val) {
+      newParams.delete(key);
+    } else {
+      newParams.set(key, val);
+    }
+    if (key !== "page") {
+      newParams.set("page", "1"); // Reset page on filter shifts
+    }
+    router.push(`/dashboard?${newParams.toString()}`);
+  };
+
+  // ======================================================
+  // FETCHERS
+  // ======================================================
+  const fetchDashboardData = async () => {
+    setPageLoading(true);
+    try {
+      const [statsRes, creditRes] = await Promise.all([
+        fetch(`${API}/api/dashboard/stats`, { credentials: "include" }),
+        fetch(`${API}/api/dashboard/credits`, { credentials: "include" }),
+      ]);
+
+      const statsData = await statsRes.json();
+      const creditData = await creditRes.json();
+
+      if (statsData.success) setStats(statsData.data);
+      if (creditData.success) setCredits(creditData.data?.credits || 0);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load dashboard metrics.");
+    } finally {
+      setPageLoading(false);
+    }
+  };
+
+  const fetchHistoryData = async () => {
+    setHistoryLoading(true);
+    try {
+      const query = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: "10",
+        search,
+        status: statusFilter,
+        language: languageFilter,
+        goal: goalFilter,
+        sortBy,
+      });
+
+      const res = await fetch(`${API}/api/dashboard/history?${query.toString()}`, {
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (data.success) {
+        setHistory(data.data.analyses || []);
+        setPagination(data.data.pagination || {
+          total: 0,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load history:", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const refreshDashboardData = async () => {
+    try {
+      const [statsRes, creditRes] = await Promise.all([
+        fetch(`${API}/api/dashboard/stats`, { credentials: "include" }),
+        fetch(`${API}/api/dashboard/credits`, { credentials: "include" }),
+      ]);
+
+      const statsData = await statsRes.json();
+      const creditData = await creditRes.json();
+
+      if (statsData.success) setStats(statsData.data);
+      if (creditData.success) setCredits(creditData.data?.credits || 0);
+    } catch (err) {
+      console.error("Silent background refresh failed:", err);
+    }
+  };
+
+  // Trigger stats load once on auth success
   useEffect(() => {
     if (user) {
       fetchDashboardData();
     }
   }, [user]);
 
-  const fetchDashboardData =
-    async () => {
-      setPageLoading(true);
+  // Trigger history fetch when filter deps change
+  useEffect(() => {
+    if (user) {
+      fetchHistoryData();
+    }
+  }, [user, currentPage, search, statusFilter, languageFilter, goalFilter, sortBy]);
 
-      try {
-        const [
-          statsRes,
-          creditRes,
-          historyRes,
-        ] = await Promise.all([
-          fetch(
-            `${API}/api/dashboard/stats`,
-            {
-              credentials:
-                "include",
-            }
-          ),
-
-          fetch(
-            `${API}/api/dashboard/credits`,
-            {
-              credentials:
-                "include",
-            }
-          ),
-
-          fetch(
-            `${API}/api/dashboard/history?page=1&limit=5`,
-            {
-              credentials:
-                "include",
-            }
-          ),
-        ]);
-
-        const statsData =
-          await statsRes.json();
-
-        const creditData =
-          await creditRes.json();
-
-        const historyData =
-          await historyRes.json();
-
-        setStats(
-          statsData.data
-        );
-
-        setCredits(
-          creditData.data
-            ?.credits || 0
-        );
-
-        setHistory(
-          historyData.data
-            ?.analyses || []
-        );
-
-      } catch (err) {
-        console.log(err);
-
-        toast.error(
-          "Failed to load dashboard"
-        );
-
-      } finally {
-        setPageLoading(false);
-      }
-    };
+  const handleDeleteSuccess = (id) => {
+    // 1. Optimistically remove deleted element immediately
+    setHistory((prev) => prev.filter((item) => item._id !== id));
+    
+    // 2. Adjust target page fallback if last element on page is deleted
+    if (history.length === 1 && currentPage > 1) {
+      handleFilterChange("page", (currentPage - 1).toString());
+    } else {
+      fetchHistoryData();
+    }
+    
+    // 3. Update stats in the background
+    refreshDashboardData();
+  };
 
   // ======================================================
   // LOADING
@@ -259,332 +327,255 @@ export default function DashboardPage() {
   // ======================================================
 
   return (
-    <div className="min-h-screen bg-gray-50">
-
+    <div className="min-h-screen bg-slate-50/50">
       <Navbar />
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-10 md:py-14">
 
         {/* ======================================================
-            HERO
+            HERO SECTION
         ====================================================== */}
-
         <motion.div
-          initial={{
-            opacity: 0,
-            y: 20,
-          }}
-
-          animate={{
-            opacity: 1,
-            y: 0,
-          }}
-
-          className="relative overflow-hidden rounded-[32px] bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-700 text-white p-8 md:p-12 shadow-2xl"
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative overflow-hidden rounded-[32px] bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-8 md:p-14 shadow-xl border border-white/5"
         >
-          {/* BG */}
-          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_top_right,white,transparent_40%)]" />
+          {/* Radial ambient glow bg */}
+          <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_top_right,#4f46e5,transparent_45%)] pointer-events-none" />
+          <div className="absolute -left-20 -bottom-20 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
-          <div className="relative z-10 flex flex-col lg:flex-row justify-between gap-10">
+          <div className="relative z-10 flex flex-col lg:flex-row justify-between gap-12 items-center">
 
-            {/* LEFT */}
-            <div className="max-w-3xl">
-
-              <div className="inline-flex items-center gap-2 bg-white/20 px-4 py-2 rounded-full backdrop-blur mb-6">
-
-                <Sparkles size={18} />
-
-                AI Learning OS
-
+            {/* LEFT (WELCOME INFO) */}
+            <div className="max-w-2xl text-left">
+              <div className="inline-flex items-center gap-2 bg-white/10 border border-white/10 px-4 py-2 rounded-full backdrop-blur-md mb-6 text-sm font-bold text-indigo-200">
+                <Sparkles size={15} className="text-yellow-400" />
+                <span>AI Learning Workspace</span>
               </div>
 
-              <h1 className="text-5xl md:text-6xl font-extrabold leading-tight">
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-tight">
                 Welcome back,
                 <br />
-                {user.name || "User"} 🚀
+                <span className="bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">
+                  {user.name || "User"}
+                </span> 👋
               </h1>
 
-              <p className="text-blue-100 text-lg mt-6 leading-8 max-w-2xl">
-                Turn YouTube videos into
-                premium AI-generated
-                notes, roadmaps,
-                execution plans and
-                interview preparation.
+              <p className="text-slate-300 text-base md:text-lg mt-6 leading-relaxed max-w-xl">
+                Convert standard YouTube videos into production-grade structured study notes, roadmap outlines, coding challenges, and mock interview preparations.
               </p>
 
               {/* ACTIONS */}
-              <div className="flex flex-wrap gap-4 mt-10">
-
+              <div className="flex flex-wrap gap-4 mt-8">
                 <Link
                   href="/analyze"
-                  className="bg-white text-black px-6 py-4 rounded-2xl font-semibold flex items-center gap-2 hover:scale-105 transition"
+                  className="bg-white text-slate-950 px-6 py-3.5 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-100 hover:shadow-lg hover:-translate-y-0.5 active:scale-98 transition-all duration-200"
                 >
                   <PlusCircle size={18} />
-
-                  Analyze Video
+                  <span>Analyze Video</span>
                 </Link>
 
                 <Link
                   href="/buy-credits"
-                  className="bg-black/20 border border-white/20 backdrop-blur px-6 py-4 rounded-2xl font-semibold flex items-center gap-2"
+                  className="bg-white/10 border border-white/10 backdrop-blur px-6 py-3.5 rounded-2xl font-bold flex items-center gap-2 hover:bg-white/15 hover:-translate-y-0.5 active:scale-98 transition-all duration-200"
                 >
-                  <Zap size={18} />
-
-                  Buy Credits
+                  <Zap size={18} className="text-yellow-400" />
+                  <span>Buy Credits</span>
                 </Link>
-
               </div>
-
             </div>
 
-            {/* RIGHT */}
-            <div className="grid grid-cols-2 gap-4 min-w-[320px]">
+            {/* RIGHT (STATS GRID) */}
+            <div className="grid grid-cols-2 gap-4 w-full lg:w-auto min-w-[320px] max-w-md">
+              {cards.map((card, index) => {
+                const Icon = card.icon;
 
-              {cards.map(
-                (
-                  card,
-                  index
-                ) => {
-                  const Icon =
-                    card.icon;
-
-                  return (
-                    <motion.div
-                      key={
-                        card.title
-                      }
-
-                      initial={{
-                        opacity: 0,
-                        scale: 0.9,
-                      }}
-
-                      animate={{
-                        opacity: 1,
-                        scale: 1,
-                      }}
-
-                      transition={{
-                        delay:
-                          index *
-                          0.1,
-                      }}
-
-                      className={`rounded-3xl bg-gradient-to-r ${card.color} p-5 shadow-lg`}
-                    >
-                      <Icon className="w-8 h-8 text-white/90" />
-
-                      <div className="mt-5">
-
-                        <div className="text-white/80 text-sm">
-                          {
-                            card.title
-                          }
-                        </div>
-
-                        <div className="text-4xl font-bold mt-2">
-                          {
-                            card.value
-                          }
-                        </div>
-
+                return (
+                  <motion.div
+                    key={card.title}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.08 }}
+                    className="relative group overflow-hidden rounded-3xl bg-white/5 border border-white/10 p-5 shadow-lg backdrop-blur-sm hover:border-white/20 transition-all duration-300"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent pointer-events-none" />
+                    
+                    <div className="flex items-center justify-between">
+                      <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white/90">
+                        <Icon size={16} />
                       </div>
+                    </div>
 
-                    </motion.div>
-                  );
-                }
-              )}
-
+                    <div className="mt-6 text-left">
+                      <div className="text-white/60 text-xs font-bold uppercase tracking-wider">
+                        {card.title}
+                      </div>
+                      <div className="text-3xl font-black tracking-tight mt-1 text-white leading-none">
+                        {card.value}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </div>
 
           </div>
-
         </motion.div>
 
         {/* ======================================================
-            LOW CREDIT WARNING
+            LOW CREDIT WARNING (IF APPLICABLE)
         ====================================================== */}
-
         {credits <= 2 && (
           <motion.div
-            initial={{
-              opacity: 0,
-              y: 10,
-            }}
-
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-
-            className="mt-8 bg-yellow-50 border border-yellow-200 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between gap-5"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-8 bg-amber-50 border border-amber-200 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between gap-5 shadow-sm"
           >
-            <div className="flex items-center gap-4">
-
-              <div className="w-14 h-14 rounded-2xl bg-yellow-100 flex items-center justify-center">
-
-                <Zap className="text-yellow-600" />
-
+            <div className="flex items-center gap-4 text-left">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600 flex-shrink-0">
+                <Zap size={20} className="fill-amber-600" />
               </div>
-
               <div>
-
-                <h3 className="text-xl font-bold">
-                  Low Credits Remaining
+                <h3 className="text-lg font-black text-slate-900">
+                  Low Credits Alert
                 </h3>
-
-                <p className="text-gray-600 mt-1">
-                  Your AI credits are
-                  running low. Recharge
-                  now to continue using
-                  premium analysis.
+                <p className="text-slate-600 text-sm mt-1">
+                  You only have {credits} credits left. Upgrade your credits quota now to maintain uninterrupted access to our deep learning video analyses.
                 </p>
-
               </div>
-
             </div>
 
             <Link
               href="/buy-credits"
-              className="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-3 rounded-2xl font-semibold"
+              className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 rounded-2xl font-bold text-sm shadow-sm active:scale-98 transition-all duration-150 flex-shrink-0"
             >
-              Buy Credits
+              Recharge Quota
             </Link>
-
           </motion.div>
         )}
 
         {/* ======================================================
-            QUICK ACTIONS
+            QUICK ACTIONS GRID
         ====================================================== */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mt-10">
 
-        <div className="grid lg:grid-cols-3 gap-6 mt-10">
-
-          {/* ANALYZE */}
+          {/* ANALYZE CARD */}
           <motion.div
-            whileHover={{
-              y: -5,
-            }}
-
-            className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8"
+            whileHover={{ y: -4 }}
+            className="bg-white rounded-3xl shadow-sm border border-slate-200/60 p-8 text-left hover:border-blue-500/20 hover:shadow-lg transition-all duration-300 flex flex-col justify-between"
           >
-            <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center">
-
-              <Brain className="text-blue-600" />
-
+            <div>
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 shadow-sm border border-blue-500/10">
+                <Brain size={20} />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 mt-6">
+                Analyze Video
+              </h3>
+              <p className="text-slate-500 text-sm mt-3 leading-relaxed">
+                Provide any educational YouTube video link to extract deep synthesis reports, key study concepts, custom roadmaps, and programming projects.
+              </p>
             </div>
-
-            <h3 className="text-2xl font-bold mt-6">
-              Analyze Video
-            </h3>
-
-            <p className="text-gray-500 mt-3 leading-7">
-              Generate premium AI notes,
-              roadmap, QA, project ideas
-              and deep learning material.
-            </p>
-
             <Link
               href="/analyze"
-              className="inline-flex items-center gap-2 mt-8 text-blue-600 font-semibold"
+              className="inline-flex items-center gap-2 mt-8 text-blue-600 font-bold text-sm group"
             >
-              Start Analysis
-
-              <ArrowRight size={18} />
+              <span>Launch analysis workspace</span>
+              <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
             </Link>
-
           </motion.div>
 
-          {/* CREDIT */}
+          {/* CREDITS CARD */}
           <motion.div
-            whileHover={{
-              y: -5,
-            }}
-
-            className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8"
+            whileHover={{ y: -4 }}
+            className="bg-white rounded-3xl shadow-sm border border-slate-200/60 p-8 text-left hover:border-purple-500/20 hover:shadow-lg transition-all duration-300 flex flex-col justify-between"
           >
-            <div className="w-14 h-14 rounded-2xl bg-purple-100 flex items-center justify-center">
-
-              <CreditCard className="text-purple-600" />
-
+            <div>
+              <div className="w-12 h-12 rounded-2xl bg-purple-50 flex items-center justify-center text-purple-600 shadow-sm border border-purple-500/10">
+                <CreditCard size={20} />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 mt-6">
+                Credits Balance
+              </h3>
+              <p className="text-slate-500 text-sm mt-3 leading-relaxed">
+                Review available credit parameters and buy learning slots. Top up your balance securely via credit card, UPI, or net banking methods.
+              </p>
             </div>
-
-            <h3 className="text-2xl font-bold mt-6">
-              AI Credits
-            </h3>
-
-            <p className="text-gray-500 mt-3 leading-7">
-              Purchase credits to unlock
-              deep AI analysis and
-              premium learning features.
-            </p>
-
             <Link
               href="/buy-credits"
-              className="inline-flex items-center gap-2 mt-8 text-purple-600 font-semibold"
+              className="inline-flex items-center gap-2 mt-8 text-purple-600 font-bold text-sm group"
             >
-              Upgrade Now
-
-              <ArrowRight size={18} />
+              <span>Add study credits</span>
+              <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
             </Link>
-
           </motion.div>
 
-          {/* ACTIVITY */}
+          {/* PROGRESS CARD */}
           <motion.div
-            whileHover={{
-              y: -5,
-            }}
-
-            className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8"
+            whileHover={{ y: -4 }}
+            className="bg-white rounded-3xl shadow-sm border border-slate-200/60 p-8 text-left hover:border-emerald-500/20 hover:shadow-lg transition-all duration-300 flex flex-col justify-between"
           >
-            <div className="w-14 h-14 rounded-2xl bg-green-100 flex items-center justify-center">
-
-              <TrendingUp className="text-green-600" />
-
+            <div>
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 shadow-sm border border-emerald-500/10">
+                <TrendingUp size={20} />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 mt-6">
+                Workspace History
+              </h3>
+              <p className="text-slate-500 text-sm mt-3 leading-relaxed">
+                Review and manage your analyzed materials. Revisit existing flashcards, edit previous notes, or study roadmaps on previously created records.
+              </p>
             </div>
-
-            <h3 className="text-2xl font-bold mt-6">
-              Learning Progress
-            </h3>
-
-            <p className="text-gray-500 mt-3 leading-7">
-              Track your AI learning
-              journey and monitor your
-              educational growth.
-            </p>
-
-            <div className="mt-8 flex items-center gap-3">
-
-              <Clock3 className="text-gray-400" />
-
-              <span className="text-gray-700">
-                {
-                  history.length
-                }{" "}
-                recent analyses
-              </span>
-
+            <div className="mt-8 flex items-center justify-between text-slate-400">
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-600">
+                <Clock3 size={16} className="text-slate-400" />
+                <span>{stats?.totalAnalyses || 0} completed logs</span>
+              </div>
             </div>
-
           </motion.div>
 
         </div>
 
         {/* ======================================================
-            HISTORY
+            HISTORY LISTING
         ====================================================== */}
-
-        <div className="mt-12">
-
+        <div className="mt-14">
           <AnalysisHistory
             analyses={history}
+            loading={historyLoading}
+            pagination={pagination}
+            page={currentPage}
+            setPage={(p) => handleFilterChange("page", p.toString())}
+            search={searchInput}
+            setSearch={setSearchInput}
+            statusFilter={statusFilter}
+            setStatusFilter={(s) => handleFilterChange("status", s)}
+            sortBy={sortBy}
+            setSortBy={(sort) => handleFilterChange("sortBy", sort)}
+            languageFilter={languageFilter}
+            setLanguageFilter={(l) => handleFilterChange("language", l)}
+            goalFilter={goalFilter}
+            setGoalFilter={(g) => handleFilterChange("goal", g)}
+            onDeleteSuccess={handleDeleteSuccess}
           />
-
         </div>
 
       </div>
-
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-14 h-14 animate-spin mx-auto text-blue-500" />
+          <h2 className="text-2xl font-bold mt-6">Loading AI Dashboard...</h2>
+          <p className="text-slate-400 mt-2">Preparing your learning workspace</p>
+        </div>
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   );
 }

@@ -106,7 +106,8 @@ export const verifyPayment = async (req, res) => {
       });
     }
     console.log("VERIFY BODY:", req.body);
-    // 🔥 get payment from DB
+    
+    // 🔥 get payment from DB first to verify existence
     const payment = await Payment.findOne({ orderId: razorpay_order_id });
     console.log("PAYMENT FOUND:", payment);
     if (!payment) {
@@ -124,34 +125,71 @@ export const verifyPayment = async (req, res) => {
       });
     }
 
-    // 🔥 update payment
-    payment.paymentId = razorpay_payment_id;
-    payment.status = "paid";
-    payment.source = "verify_api";
-
     const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    payment.expiresAt = expiry;
 
-    await payment.save();
+    // 🔥 atomic check & update (prevents concurrent double credits)
+    const updatedPayment = await Payment.findOneAndUpdate(
+      { orderId: razorpay_order_id, isCredited: false },
+      {
+        $set: {
+          paymentId: razorpay_payment_id,
+          status: "paid",
+          source: "verify_api",
+          expiresAt: expiry,
+          isCredited: true,
+        },
+      },
+      { returnDocument: "after" }
+    );
+
+    if (!updatedPayment) {
+      // Concurrent duplicate request or already processed
+      const checkPayment = await Payment.findOne({ orderId: razorpay_order_id });
+      if (checkPayment && checkPayment.isCredited) {
+        return res.json({
+          success: true,
+          message: "Already credited",
+        });
+      }
+      return res.status(409).json({
+        success: false,
+        message: "Payment processing conflict. Please refresh.",
+      });
+    }
 
     // 🔥 IMPORTANT: credits from DB
-    const creditsToAdd = payment.credits;
+    const creditsToAdd = updatedPayment.credits;
 
     if (!creditsToAdd) {
       throw new Error("Credits missing in payment record");
     }
 
-    // 🔥 add credits safely
-    await User.updateOne(
-      { _id: req.user.id },
-      {
-        $inc: { credits: creditsToAdd },
-        $set: { creditsExpiry: expiry },
-      },
-    );
+    try {
+      const userDoc = await User.findById(req.user.id);
+      if (!userDoc) {
+        throw new Error("User not found");
+      }
+      const isExpired = userDoc.creditsExpiry && new Date() > userDoc.creditsExpiry;
+      const finalCredits = isExpired ? creditsToAdd : (userDoc.credits || 0) + creditsToAdd;
 
-    payment.isCredited = true;
-    await payment.save();
+      // 🔥 add credits safely (clears expired credits if they existed)
+      await User.updateOne(
+        { _id: req.user.id },
+        {
+          $set: {
+            credits: finalCredits,
+            creditsExpiry: expiry,
+          },
+        },
+      );
+    } catch (userUpdateError) {
+      // 🔥 Rollback state to allow subsequent retries
+      await Payment.updateOne(
+        { _id: updatedPayment._id },
+        { $set: { isCredited: false, status: "created" } }
+      );
+      throw userUpdateError;
+    }
 
     return res.json({
       success: true,

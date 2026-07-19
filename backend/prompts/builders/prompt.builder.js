@@ -62,6 +62,13 @@ ${CONTENT_TYPE_PROMPT}
 ${featurePrompt}
 
 ==================================================
+LANGUAGE CONFORMITY
+==================================================
+
+You MUST write all generated text fields, content, summaries, descriptions, notes, roadmaps, questions, options, and explanations in the following language: ${language}.
+Ensure that every single string value returned in the JSON object is written in ${language}.
+
+==================================================
 
 ${OUTPUT_SCHEMA_PROMPT}
 `;

@@ -109,6 +109,11 @@ export const loginUser = async (req, res, next) => {
       });
     }
 
+    // 🔥 Dynamic credit expiry check & reset on login (database write consolidated with refreshToken save)
+    if (user.creditsExpiry && new Date() > user.creditsExpiry && user.credits > 0) {
+      user.credits = 0;
+    }
+
     const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
 

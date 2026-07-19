@@ -49,10 +49,59 @@ const createAnalysisSchema = Joi.object({
 // HELPERS
 // ======================================================
 
-const createInputHash = ({ youtubeUrl, goal, language }) => {
+const normalizeLanguage = (lang) => {
+  if (!lang) return "english";
+  const l = lang.trim().toLowerCase();
+  
+  // English aliases
+  if (l === "en" || l === "english" || l.startsWith("en-") || l === "eng") return "english";
+  // Hindi aliases
+  if (l === "hi" || l === "hindi" || l === "hin") return "hindi";
+  // Hinglish aliases
+  if (l === "hinglish" || l === "hin-eng") return "hinglish";
+  // Bengali aliases
+  if (l === "bengali" || l === "bn" || l === "ben") return "bengali";
+  // Tamil aliases
+  if (l === "tamil" || l === "ta" || l === "tam") return "tamil";
+  // Telugu aliases
+  if (l === "telugu" || l === "te" || l === "tel") return "telugu";
+  // Marathi aliases
+  if (l === "marathi" || l === "mr" || l === "mar") return "marathi";
+  // Gujarati aliases
+  if (l === "gujarati" || l === "gu" || l === "guj") return "gujarati";
+  // Punjabi aliases
+  if (l === "punjabi" || l === "pa" || l === "pan") return "punjabi";
+  // Urdu aliases
+  if (l === "urdu" || l === "ur" || l === "urd") return "urdu";
+  // Malayalam aliases
+  if (l === "malayalam" || l === "ml" || l === "mal") return "malayalam";
+  // Kannada aliases
+  if (l === "kannada" || l === "kn" || l === "kan") return "kannada";
+  // Arabic aliases
+  if (l === "arabic" || l === "ar" || l === "ara") return "arabic";
+  // Spanish aliases
+  if (l === "spanish" || l === "es" || l === "spa") return "spanish";
+  // French aliases
+  if (l === "french" || l === "fr" || l === "fre" || l === "fra") return "french";
+  // German aliases
+  if (l === "german" || l === "de" || l === "ger" || l === "deu") return "german";
+  // Japanese aliases
+  if (l === "japanese" || l === "ja" || l === "jpn") return "japanese";
+  // Korean aliases
+  if (l === "korean" || l === "ko" || l === "kor") return "korean";
+  // Chinese aliases
+  if (l === "chinese" || l === "zh" || l === "chi" || l === "zho") return "chinese";
+  // Portuguese aliases
+  if (l === "portuguese" || l === "pt" || l === "por") return "portuguese";
+
+  return l;
+};
+
+// Cache identity definition: Video ID + Goal
+const createInputHash = ({ youtubeUrl, goal }) => {
   const videoId = extractVideoId(youtubeUrl);
   const normalizedUrl = videoId ? `https://www.youtube.com/watch?v=${videoId}` : youtubeUrl;
-  return crypto.createHash("sha256").update(`${normalizedUrl}-${goal}-${language}`).digest("hex");
+  return crypto.createHash("sha256").update(`${normalizedUrl}-${goal}`).digest("hex");
 };
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -92,12 +141,11 @@ const checkAndIncrementDailyLimit = async (userId) => {
   }
   return { allowed: true };
 };
-
-const cleanOrphansGlobal = async (inputHash) => {
+const cleanOrphansGlobal = async (inputHash, language) => {
   try {
     const cutoff = new Date(Date.now() - ORPHAN_JOB_AGE_MS);
     await Analysis.updateMany(
-      { inputHash, status: { $in: ["queued", "processing"] }, createdAt: { $lt: cutoff } },
+      { inputHash, language, status: { $in: ["queued", "processing"] }, createdAt: { $lt: cutoff } },
       { $set: { status: "failed", error: "Orphaned job auto-cleaned" } },
     );
   } catch (err) {
@@ -105,8 +153,8 @@ const cleanOrphansGlobal = async (inputHash) => {
   }
 };
 
-const acquireCreateLock = async (inputHash) => {
-  const lockKey = `lock:create:${inputHash}`;
+const acquireCreateLock = async (inputHash, language) => {
+  const lockKey = `lock:create:${inputHash}:${language}`;
   const redis = getRedisClient();
   let attempts = 0;
   while (attempts < 20) { // wait up to 10 seconds
@@ -117,7 +165,6 @@ const acquireCreateLock = async (inputHash) => {
   }
   throw new Error("Timeout acquiring creation lock. Please try again.");
 };
-
 const linkUserToAnalysisAtomic = async (analysisId, userId, credits, skipDeduction = false) => {
   // 1. Check daily limit first
   const { allowed } = await checkAndIncrementDailyLimit(userId);
@@ -177,6 +224,11 @@ export const createYoutubeAnalysis = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
+    // 🔥 Normalize language before Joi validation to handle aliases (EN, en-US, English -> english)
+    if (req.body && req.body.language) {
+      req.body.language = normalizeLanguage(req.body.language);
+    }
+
     const { error, value } = createAnalysisSchema.validate(req.body, {
       abortEarly: true,
       stripUnknown: true,
@@ -191,25 +243,29 @@ export const createYoutubeAnalysis = async (req, res, next) => {
     // Normalize URL
     const videoId = extractVideoId(youtubeUrl);
     const normalizedUrl = videoId ? `https://www.youtube.com/watch?v=${videoId}` : youtubeUrl;
-    const inputHash = createInputHash({ youtubeUrl: normalizedUrl, goal, language });
+    
+    // Cache identity base hash: Video ID + Goal
+    const inputHash = createInputHash({ youtubeUrl: normalizedUrl, goal });
 
-    // Stale processing recovery
-    await cleanOrphansGlobal(inputHash);
+    // Stale processing recovery (language-aware)
+    await cleanOrphansGlobal(inputHash, language);
 
     let lockKey;
     try {
-      // 1. Initial fast check without lock
+      // 1. Initial fast check without lock (language-aware global check)
       let analysis = await Analysis.findOne({
         inputHash,
+        language,
         aiVersion: CURRENT_AI_VERSION,
         status: { $in: ["completed", "queued", "processing"] },
       });
 
       if (!analysis) {
-        lockKey = await acquireCreateLock(inputHash);
+        lockKey = await acquireCreateLock(inputHash, language);
         // Double check after acquiring lock
         analysis = await Analysis.findOne({
           inputHash,
+          language,
           aiVersion: CURRENT_AI_VERSION,
           status: { $in: ["completed", "queued", "processing"] },
         });

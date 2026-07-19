@@ -154,8 +154,8 @@ export default function ResultPage() {
    * never restarts when the parent re-renders.
    */
   const handlePollingSuccess = useCallback(
-    (updated) => replaceAnalysis(updated),
-    [replaceAnalysis],
+    (updated) => mergeAnalysis(updated),
+    [mergeAnalysis],
   );
 
   const handlePollingError = useCallback(

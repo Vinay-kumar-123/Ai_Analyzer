@@ -190,16 +190,17 @@ const analysisSchema = new mongoose.Schema(
 
 analysisSchema.index({ user: 1, createdAt: -1 });
 analysisSchema.index({ user: 1, inputHash: 1, status: 1 });
-analysisSchema.index({ inputHash: 1, goal: 1, language: 1, status: 1 });
+analysisSchema.index({ inputHash: 1, goal: 1, language: 1, status: 1 }, { language_override: "dummy_language" });
 analysisSchema.index({ status: 1, createdAt: -1 });
-analysisSchema.index({ videoTitle: "text", summary: "text" });
+analysisSchema.index({ videoTitle: "text", summary: "text" }, { language_override: "dummy_language" });
 
 // Unique index for the global cache with active requests (excludes failed ones)
 analysisSchema.index(
-  { inputHash: 1, aiVersion: 1 },
+  { inputHash: 1, language: 1, aiVersion: 1 },
   {
     unique: true,
     partialFilterExpression: { status: { $in: ["completed", "queued", "processing"] } },
+    language_override: "dummy_language",
   }
 );
 
@@ -256,12 +257,12 @@ analysisSchema.statics.findRunning = function (userId, inputHash) {
   return this.findOne({ user: userId, inputHash, status: { $in: ["queued", "processing"] } }).select("_id status");
 };
 
-analysisSchema.statics.findCachedGlobal = function (inputHash, version) {
-  return this.findOne({ inputHash, aiVersion: version, status: "completed" });
+analysisSchema.statics.findCachedGlobal = function (inputHash, language, version) {
+  return this.findOne({ inputHash, language, aiVersion: version, status: "completed" });
 };
 
-analysisSchema.statics.findRunningGlobal = function (inputHash, version) {
-  return this.findOne({ inputHash, aiVersion: version, status: { $in: ["queued", "processing"] } });
+analysisSchema.statics.findRunningGlobal = function (inputHash, language, version) {
+  return this.findOne({ inputHash, language, aiVersion: version, status: { $in: ["queued", "processing"] } });
 };
 
 analysisSchema.statics.countToday = function (userId) {

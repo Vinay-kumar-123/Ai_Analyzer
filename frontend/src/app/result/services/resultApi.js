@@ -68,7 +68,7 @@ async function request(endpoint, options = {}) {
 
     success: body?.success ?? response.ok,
     message: body?.message,
-    data: body?.data,
+    data: body?.data !== undefined ? body.data : body,
   };
 }
 

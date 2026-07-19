@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-
 import { motion } from "framer-motion";
-
+import { useAuth } from "@/contexts/AuthContext";
+import { useState } from "react";
 import {
   ArrowRight,
   Brain,
@@ -18,604 +18,541 @@ import {
   GraduationCap,
   Code2,
   Briefcase,
+  Link as LinkIcon,
+  Globe,
+  Check,
+  ChevronDown,
+  HelpCircle,
 } from "lucide-react";
-
-import { useAuth } from "@/contexts/AuthContext";
+import { FaYoutube } from "react-icons/fa";
 
 export default function HomeSection() {
   const { user } = useAuth();
+  const [activeFaq, setActiveFaq] = useState(null);
 
   // ======================================================
-  // FEATURES
+  // DATA MATRICES
   // ======================================================
 
   const features = [
     {
       title: "AI Deep Notes",
-      desc:
-        "Convert long videos into structured premium notes with missing explanations filled automatically.",
+      desc: "Instantly parse long video files into formatted summaries with AI filling in missing concepts and background context.",
       icon: FileText,
     },
-
     {
       title: "Execution Engine",
-      desc:
-        "Get step-by-step practical implementation plans with commands, code and actions.",
+      desc: "Receive structured implementation roadmaps with command-line examples, target folder directories, and code snippets.",
       icon: Rocket,
     },
-
     {
-      title: "AI Roadmaps",
-      desc:
-        "Generate personalized learning roadmaps and skill progression paths.",
+      title: "AI Skill Roadmaps",
+      desc: "Generate custom learning paths to track and verify your progress from novice foundations up to mastery levels.",
       icon: Layers3,
     },
-
     {
-      title: "Interview Preparation",
-      desc:
-        "AI generates interview questions, answers and job-focused insights automatically.",
+      title: "Interview Board",
+      desc: "Prepare for coding interviews with custom flashcards, mock QA questions, and structural job insights from study materials.",
       icon: Briefcase,
     },
-
     {
-      title: "Project Builder",
-      desc:
-        "Generate real-world projects, architecture and folder structures instantly.",
+      title: "Project Creator",
+      desc: "Build application boilerplate code structures and component layout architectures matching standard enterprise setups.",
       icon: Code2,
     },
-
     {
-      title: "Smart Learning",
-      desc:
-        "Understand difficult concepts deeply with AI-powered simplified explanations.",
+      title: "Smart Explanations",
+      desc: "Break down complex or obscure topics into simplified summaries designed to maximize information retention.",
       icon: Brain,
     },
   ];
 
-  // ======================================================
-  // GOALS
-  // ======================================================
-
-  const goals = [
+  const steps = [
     {
-      title: "Students",
-      desc:
-        "Deep notes, easy explanations and learning guidance.",
-      icon: GraduationCap,
-      color: "from-blue-500 to-indigo-600",
+      step: "01",
+      title: "Paste Video Link",
+      desc: "Provide any public YouTube educational link or programming tutorial into the URL input block.",
+      icon: LinkIcon,
     },
-
     {
-      title: "Developers",
-      desc:
-        "Code generation, architecture and execution systems.",
-      icon: Code2,
-      color: "from-green-500 to-emerald-600",
+      step: "02",
+      title: "Define Target Parameters",
+      desc: "Specify your preferred study goal (Student, Developer, Job Seeker) and your desired output language.",
+      icon: Globe,
     },
-
     {
-      title: "Job Seekers",
-      desc:
-        "Interview prep, resume points and industry insights.",
-      icon: Briefcase,
-      color: "from-purple-500 to-pink-600",
+      step: "03",
+      title: "AI Synthesizes Material",
+      desc: "Gemini models process transcripts to generate notes, interactive quizzes, and source project boilerplate.",
+      icon: Brain,
+    },
+    {
+      step: "04",
+      title: "Study Efficiently",
+      desc: "Read summaries, test your conceptual retention with flashcards, and launch code templates directly.",
+      icon: Zap,
+    },
+  ];
+
+  const languages = [
+    { label: "English",    native: "English" },
+    { label: "Hinglish",   native: "Hinglish" },
+    { label: "Hindi",      native: "हिन्दी" },
+    { label: "Bengali",    native: "বাংলা" },
+    { label: "Tamil",      native: "தமிழ்" },
+    { label: "Telugu",     native: "తెలుగు" },
+    { label: "Marathi",    native: "मराठी" },
+    { label: "Gujarati",   native: "ગુજરાતી" },
+    { label: "Japanese",   native: "日本語" },
+    { label: "German",     native: "Deutsch" },
+  ];
+
+  const faqs = [
+    {
+      q: "How does the AI fill in missing information?",
+      a: "Our synthesis engine cross-references transcripts with verified technical sources, adding definitions and standard architectural code patterns where video speakers leave them out.",
+    },
+    {
+      q: "Does this require a premium YouTube subscription?",
+      a: "No, AI Analyzer parses public YouTube video data. You only need a standard video link to get started.",
+    },
+    {
+      q: "Can I generate notes in languages other than English?",
+      a: "Yes, we support over 20 languages including Hindi, Bengali, Spanish, Japanese, and Hinglish. AI writes all notes and quizzes in the selected language.",
+    },
+    {
+      q: "How does the credit system work?",
+      a: "Each video analysis consumes credits based on duration metrics. New accounts receive free starter credits, and you can buy top-ups anytime.",
+    },
+  ];
+
+  const testimonials = [
+    {
+      name: "Aarav Mehta",
+      role: "MERN Stack Developer",
+      quote: "AI Analyzer completely replaced my scrub-heavy video study habits. The generated roadmaps are incredibly accurate.",
+    },
+    {
+      name: "Sarah Jenkins",
+      role: "Computer Science Student",
+      quote: "The interactive flashcards and quizzes helped me prep for my data structure tests in half the time.",
+    },
+    {
+      name: "Takahiro Sato",
+      role: "Backend Engineer",
+      quote: "Extremely useful for reading long code-along videos. Getting standard project files directly saves me hours of copy-pasting.",
     },
   ];
 
   return (
-    <div className="min-h-screen bg-white overflow-hidden">
-
+    <div className="min-h-screen bg-[#080a12] text-white overflow-x-hidden">
+      
       {/* ======================================================
-          HERO
+          HERO SECTION
       ====================================================== */}
+      <section className="relative min-h-[90vh] flex items-center justify-center pt-24 pb-16 overflow-hidden">
+        {/* Glow Background Gradients */}
+        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_top_right,#2563eb,transparent_40%)]" />
+        <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_bottom_left,#8b5cf6,transparent_40%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:50px_50px]" />
 
-      <section className="relative min-h-screen flex items-center overflow-hidden bg-gradient-to-br from-black via-slate-950 to-blue-950 text-white">
+        <div className="relative z-10 max-w-7xl mx-auto px-6 grid lg:grid-cols-12 gap-16 items-center w-full">
+          
+          {/* HERO LEFT */}
+          <div className="lg:col-span-7 text-left">
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/25 px-4.5 py-2 rounded-full mb-8 text-sm font-bold text-blue-400">
+                <Sparkles size={14} className="text-yellow-400" />
+                <span>Modern AI Learning Platform</span>
+              </div>
 
-        {/* BG EFFECTS */}
-        <div className="absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_top_right,#2563eb,transparent_30%)]" />
+              <h1 className="text-5xl md:text-6xl xl:text-7xl font-black tracking-tight leading-[1.05] text-white">
+                Never Rewatch a
+                <br />
+                <span className="bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">YouTube Video</span>
+                <br />
+                Again.
+              </h1>
 
-        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_bottom_left,#7c3aed,transparent_30%)]" />
+              <p className="text-lg md:text-xl text-slate-300 leading-relaxed mt-6 max-w-xl font-medium">
+                Instantly convert long video transcripts into structured study notes, coding roadmaps, flashcard decks, and practice tests designed for your target career path.
+              </p>
 
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:60px_60px]" />
-
-        <div className="relative z-10 max-w-7xl mx-auto px-6 py-24 grid lg:grid-cols-2 gap-24 items-center">
-
-          {/* ======================================================
-              LEFT
-          ====================================================== */}
-
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 30,
-            }}
-
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-
-            transition={{
-              duration: 0.7,
-            }}
-
-            className="max-w-2xl"
-          >
-
-            {/* BADGE */}
-            <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-400/20 backdrop-blur px-5 py-2 rounded-full mb-8">
-
-              <Sparkles
-                size={16}
-                className="text-blue-400"
-              />
-
-              <span className="text-sm font-medium text-blue-100 tracking-wide">
-                AI-Powered Learning OS
-              </span>
-
-            </div>
-
-            {/* TITLE */}
-            <h1 className="text-5xl md:text-6xl lg:text-7xl font-black leading-[1.05] tracking-tight text-white">
-
-              Never
-              <br />
-
-              <span className="text-blue-400">
-                Rewatch
-              </span>{" "}
-
-              a
-              <br />
-
-              YouTube
-              <br />
-
-              Video Again.
-
-            </h1>
-
-            {/* DESC */}
-            <p className="text-lg md:text-xl text-gray-300 leading-9 mt-8 max-w-2xl font-normal">
-
-              Transform YouTube videos into premium AI-generated
-              notes, roadmaps, interview prep, execution plans,
-              projects and deep explanations.
-
-            </p>
-
-            {/* FEATURES */}
-            <div className="mt-10 space-y-5">
-
-              {[
-                "AI fills missing explanations automatically",
-                "Generate actionable execution systems",
-                "Structured notes like premium study material",
-                "Designed for students, developers & job seekers",
-              ].map((item, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-4"
+              {/* ACTION CALLS */}
+              <div className="flex flex-wrap gap-4 mt-8">
+                <Link
+                  href={user ? "/dashboard" : "/login"}
+                  className="group inline-flex items-center gap-2.5 bg-blue-600 hover:bg-blue-500 px-8 py-4 rounded-2xl font-bold text-base shadow-lg shadow-blue-500/10 active:scale-98 transition-all duration-200"
                 >
-                  <div className="w-7 h-7 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                  <span>{user ? "Go to Dashboard" : "Start Learning Free"}</span>
+                  <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                </Link>
 
-                    <CheckCircle2
-                      size={16}
-                      className="text-emerald-400"
-                    />
-
-                  </div>
-
-                  <span className="text-gray-200 text-lg">
-                    {item}
-                  </span>
-
-                </div>
-              ))}
-
-            </div>
-
-            {/* CTA */}
-            <div className="mt-12">
-
-              <Link
-                href={
-                  user
-                    ? "/dashboard"
-                    : "/login"
-                }
-                className="group inline-flex items-center gap-3 bg-blue-600 hover:bg-blue-700 px-9 py-4 rounded-2xl font-semibold text-lg transition-all duration-300 hover:scale-105 shadow-[0_10px_40px_rgba(37,99,235,0.35)]"
-              >
-
-                {user
-                  ? "Go to Dashboard"
-                  : "Start Free"}
-
-                <ArrowRight
-                  size={20}
-                  className="group-hover:translate-x-1 transition"
-                />
-
-              </Link>
-
-            </div>
-
-            {/* TRUST */}
-            <div className="flex flex-wrap gap-12 mt-14">
-
-              <div>
-                <div className="text-4xl font-bold text-white">
-                  AI
-                </div>
-
-                <p className="text-gray-400 mt-1">
-                  Deep Analysis
-                </p>
+                <a
+                  href="#features"
+                  className="bg-white/5 border border-white/10 hover:border-white/20 px-8 py-4 rounded-2xl font-bold text-base hover:bg-white/10 transition-all duration-200"
+                >
+                  View Features
+                </a>
               </div>
 
-              <div>
-                <div className="text-4xl font-bold text-white">
-                  Smart
+              {/* Trust badges */}
+              <div className="flex flex-wrap gap-8 mt-12 pt-8 border-t border-white/5 text-slate-400 font-semibold text-xs uppercase tracking-wider">
+                <div className="flex items-center gap-2">
+                  <Check className="text-emerald-500" size={16} />
+                  <span>20+ Languages</span>
                 </div>
-
-                <p className="text-gray-400 mt-1">
-                  Structured Notes
-                </p>
-              </div>
-
-              <div>
-                <div className="text-4xl font-bold text-white">
-                  Fast
+                <div className="flex items-center gap-2">
+                  <Check className="text-emerald-500" size={16} />
+                  <span>Tailored Goals</span>
                 </div>
-
-                <p className="text-gray-400 mt-1">
-                  Premium Learning
-                </p>
+                <div className="flex items-center gap-2">
+                  <Check className="text-emerald-500" size={16} />
+                  <span>Boilerplate Export</span>
+                </div>
               </div>
+            </motion.div>
+          </div>
 
-            </div>
-
-          </motion.div>
-
-          {/* ======================================================
-              RIGHT
-          ====================================================== */}
-
-          <motion.div
-            initial={{
-              opacity: 0,
-              scale: 0.9,
-            }}
-
-            animate={{
-              opacity: 1,
-              scale: 1,
-            }}
-
-            transition={{
-              duration: 0.7,
-            }}
-
-            className="relative"
-          >
-
-            {/* MAIN CARD */}
-            <div className="relative bg-white/10 border border-white/10 backdrop-blur-2xl rounded-[40px] p-8 shadow-[0_20px_100px_rgba(0,0,0,0.4)] overflow-hidden">
-
-              {/* GLOW */}
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-purple-500/10 pointer-events-none" />
-
-              <div className="relative z-10">
-
+          {/* HERO RIGHT */}
+          <div className="lg:col-span-5 relative w-full max-w-md mx-auto lg:max-w-none">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5, delay: 0.15 }}
+              className="bg-[#0b0f19]/70 border border-white/10 rounded-3xl p-6 md:p-8 shadow-2xl relative overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 pointer-events-none" />
+              
+              <div className="text-left mb-6 pb-4 border-b border-white/5">
                 <div className="flex items-center justify-between">
-
                   <div>
-                    <p className="text-sm text-gray-300">
-                      AI Analysis Result
-                    </p>
-
-                    <h3 className="text-3xl font-bold mt-2">
-                      Dynamic Programming
-                    </h3>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Flow Diagram</span>
+                    <h3 className="text-lg font-bold mt-1 text-white">AI Extraction Process</h3>
                   </div>
-
-                  <div className="w-14 h-14 rounded-2xl bg-blue-500 flex items-center justify-center shadow-lg">
-
-                    <Brain />
-
-                  </div>
-
+                  <Crown size={16} className="text-yellow-400" />
                 </div>
-
-                {/* NOTES */}
-                <div className="mt-8 bg-black/30 rounded-3xl p-6 border border-white/10">
-
-                  <h4 className="font-bold text-xl flex items-center gap-2">
-
-                    <BookOpen size={20} />
-
-                    AI Notes
-
-                  </h4>
-
-                  <div className="mt-5 space-y-4 text-gray-300 leading-8">
-
-                    <p>
-                      Dynamic Programming is an optimization technique used to solve overlapping subproblems efficiently.
-                    </p>
-
-                    <p>
-                      AI expanded weak explanations and generated step-by-step learning guidance automatically.
-                    </p>
-
-                  </div>
-
-                </div>
-
-                {/* STATS */}
-                <div className="grid grid-cols-3 gap-4 mt-8">
-
-                  {[
-                    {
-                      label: "Key Points",
-                      value: "42",
-                    },
-
-                    {
-                      label: "QA",
-                      value: "18",
-                    },
-
-                    {
-                      label: "Projects",
-                      value: "5",
-                    },
-                  ].map((item, i) => (
-                    <div
-                      key={i}
-                      className="bg-white/10 rounded-2xl p-5 text-center border border-white/5"
-                    >
-                      <div className="text-4xl font-bold">
-                        {item.value}
-                      </div>
-
-                      <div className="text-sm text-gray-300 mt-2">
-                        {item.label}
-                      </div>
-
-                    </div>
-                  ))}
-
-                </div>
-
               </div>
 
-            </div>
-
-            {/* FLOATING BADGE */}
-            <div className="absolute -top-6 -right-6 bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2 font-semibold">
-
-              <Crown size={18} />
-
-              Premium AI
-
-            </div>
-
-          </motion.div>
+              {/* STAGES FLOW */}
+              <div className="space-y-4">
+                {[
+                  { title: "YouTube Video Link", desc: "YouTube source processed", icon: FaYoutube, color: "text-red-500 bg-red-500/10" },
+                  { title: "AI Speech-to-Text Parsing", desc: "Transcript built & checked", icon: Brain, color: "text-blue-400 bg-blue-500/10" },
+                  { title: "Smart Study Materials", desc: "Custom notes, code & templates", icon: FileText, color: "text-purple-400 bg-purple-500/10" },
+                  { title: "Interactive Roadmaps", desc: "Active quizzes & code exports", icon: Layers3, color: "text-emerald-400 bg-emerald-500/10" },
+                ].map((stage, idx) => (
+                  <div key={idx} className="flex items-center gap-4 bg-white/5 border border-white/5 p-3 rounded-2xl text-left hover:border-white/10 transition-colors">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${stage.color}`}>
+                      <stage.icon size={16} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-xs text-white">{stage.title}</h4>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{stage.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </div>
 
         </div>
+      </section>
 
+      {/* ======================================================
+          COMPARISON SECTION
+      ====================================================== */}
+      <section className="py-20 border-t border-white/5">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight">
+              A Better Way to Learn from Video
+            </h2>
+            <p className="text-slate-400 text-sm md:text-base mt-3 max-w-xl mx-auto leading-relaxed">
+              Traditional video learning is slow and passive. We build structured systems to make active recall automatic.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+            {/* TRADITIONAL */}
+            <div className="bg-slate-900/30 border border-white/5 rounded-3xl p-8 text-left">
+              <h3 className="text-lg font-bold text-slate-400 mb-6 uppercase tracking-wider">Traditional Learning</h3>
+              <ul className="space-y-4">
+                {[
+                  "Scrubbing timelines for code clips",
+                  "Passive watching with low retention",
+                  "Missing core concepts left unexplained",
+                  "No simple way to quiz yourself",
+                ].map((txt, i) => (
+                  <li key={i} className="flex items-start gap-3 text-slate-400 text-sm font-semibold">
+                    <span className="text-red-500 font-bold mt-0.5">✕</span>
+                    <span>{txt}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* WITH AI ANALYZER */}
+            <div className="bg-blue-600/5 border border-blue-500/20 rounded-3xl p-8 text-left shadow-lg shadow-blue-500/5">
+              <h3 className="text-lg font-bold text-blue-400 mb-6 uppercase tracking-wider">AI Analyzer OS</h3>
+              <ul className="space-y-4">
+                {[
+                  "Instant code & boilerplate folders",
+                  "Active study reviews & mock QA tests",
+                  "Missing concepts expanded automatically",
+                  "Bespoke learning roadmaps by goal",
+                ].map((txt, i) => (
+                  <li key={i} className="flex items-start gap-3 text-white text-sm font-semibold">
+                    <span className="text-emerald-400 font-bold mt-0.5">✓</span>
+                    <span>{txt}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* ======================================================
           FEATURES
       ====================================================== */}
-
-      <section className="py-28 bg-gray-50">
-
+      <section id="features" className="py-24 border-t border-white/5 bg-slate-950/20">
         <div className="max-w-7xl mx-auto px-6">
-
+          
           <div className="text-center mb-20">
-
-            <div className="inline-flex items-center gap-2 bg-blue-100 text-blue-700 px-5 py-2 rounded-full mb-6">
-
-              <Zap size={18} />
-
-              AI Features
-
+            <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 text-blue-400 px-4 py-2 rounded-full mb-6 text-xs font-bold uppercase tracking-wider">
+              <Zap size={14} className="fill-blue-400" />
+              <span>Engine Features</span>
             </div>
-
-            <h2 className="text-5xl font-bold leading-tight">
-              Everything You Need to Learn Smarter
+            <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-tight">
+              Study Smarter, Build Faster.
             </h2>
-
-            <p className="text-gray-500 text-xl mt-6 max-w-3xl mx-auto leading-8">
-              Built for deep understanding,
-              practical execution and
-              accelerated learning.
+            <p className="text-slate-400 text-sm md:text-base mt-4 max-w-2xl mx-auto leading-relaxed">
+              Designed specifically to replace scrubbing timelines. Get complete notes, source assets, and verification cards in seconds.
             </p>
-
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {features.map((feature, index) => {
               const Icon = feature.icon;
-
               return (
                 <motion.div
                   key={feature.title}
-
-                  initial={{
-                    opacity: 0,
-                    y: 20,
-                  }}
-
-                  whileInView={{
-                    opacity: 1,
-                    y: 0,
-                  }}
-
-                  viewport={{
-                    once: true,
-                  }}
-
-                  transition={{
-                    delay: index * 0.08,
-                  }}
-
-                  className="bg-white rounded-3xl p-8 shadow-lg hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 border border-gray-100"
+                  initial={{ opacity: 0, y: 15 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: index * 0.05 }}
+                  className="bg-[#0b0f19]/40 border border-white/5 rounded-3xl p-8 text-left hover:border-white/10 hover:shadow-lg transition-all duration-300"
                 >
-
-                  <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center">
-
-                    <Icon className="text-blue-600" />
-
+                  <div className="w-11 h-11 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-400 border border-blue-500/20 shadow-sm">
+                    <Icon size={18} />
                   </div>
-
-                  <h3 className="text-2xl font-bold mt-6">
-                    {feature.title}
-                  </h3>
-
-                  <p className="text-gray-500 mt-4 leading-8">
-                    {feature.desc}
-                  </p>
-
+                  <h3 className="text-lg font-bold text-white mt-6">{feature.title}</h3>
+                  <p className="text-slate-400 text-sm mt-3 leading-relaxed">{feature.desc}</p>
                 </motion.div>
               );
             })}
-
           </div>
 
         </div>
-
       </section>
 
       {/* ======================================================
-          GOALS
+          HOW IT WORKS (TIMELINE)
       ====================================================== */}
-
-      <section className="py-28 bg-white">
-
+      <section className="py-24 border-t border-white/5">
         <div className="max-w-7xl mx-auto px-6">
-
           <div className="text-center mb-20">
-
-            <h2 className="text-5xl font-bold">
-              Built For Every Learner
-            </h2>
-
-            <p className="text-gray-500 text-xl mt-6">
-              Personalized AI outputs based on your goals.
+            <h2 className="text-4xl font-black tracking-tight">How It Works</h2>
+            <p className="text-slate-400 text-sm md:text-base mt-3 max-w-lg mx-auto">
+              Get from any online YouTube link to a personalized structured notes catalog in four simple steps.
             </p>
-
           </div>
 
-          <div className="grid lg:grid-cols-3 gap-8">
-
-            {goals.map((goal, index) => {
-              const Icon = goal.icon;
-
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {steps.map((step, idx) => {
+              const Icon = step.icon;
               return (
-                <motion.div
-                  key={goal.title}
-
-                  initial={{
-                    opacity: 0,
-                    y: 20,
-                  }}
-
-                  whileInView={{
-                    opacity: 1,
-                    y: 0,
-                  }}
-
-                  viewport={{
-                    once: true,
-                  }}
-
-                  transition={{
-                    delay: index * 0.1,
-                  }}
-
-                  className={`bg-gradient-to-r ${goal.color} rounded-[32px] p-10 text-white shadow-2xl hover:scale-[1.02] transition-all duration-300`}
-                >
-
-                  <Icon className="w-16 h-16" />
-
-                  <h3 className="text-4xl font-bold mt-8">
-                    {goal.title}
-                  </h3>
-
-                  <p className="text-white/90 mt-5 text-lg leading-8">
-                    {goal.desc}
-                  </p>
-
-                </motion.div>
+                <div key={idx} className="bg-slate-900/20 border border-white/5 rounded-3xl p-6 text-left relative overflow-hidden group hover:border-white/10 transition-colors">
+                  <div className="absolute top-4 right-6 text-5xl font-black text-white/5 group-hover:text-white/10 transition-colors select-none">
+                    {step.step}
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 border border-indigo-500/20 shadow-sm mb-6">
+                    <Icon size={16} />
+                  </div>
+                  <h3 className="font-bold text-base text-white">{step.title}</h3>
+                  <p className="text-slate-400 text-xs leading-relaxed mt-2.5">{step.desc}</p>
+                </div>
               );
             })}
-
           </div>
-
         </div>
-
       </section>
 
       {/* ======================================================
-          FINAL CTA
+          MULTI-LANGUAGE SECTION
       ====================================================== */}
-
-      <section className="py-28 bg-black text-white relative overflow-hidden">
-
-        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_top,#2563eb,transparent_40%)]" />
-
-        <div className="relative z-10 max-w-5xl mx-auto px-6 text-center">
-
-          <div className="inline-flex items-center gap-2 bg-white/10 px-5 py-2 rounded-full mb-8">
-
-            <Sparkles size={18} />
-
-            AI Learning Revolution
-
-          </div>
-
-          <h2 className="text-6xl font-extrabold leading-tight">
-            Ready to Learn
-            <br />
-            10x Faster?
-          </h2>
-
-          <p className="text-gray-400 text-xl mt-8 leading-9 max-w-3xl mx-auto">
-            Stop wasting hours rewatching
-            videos. Let AI generate deep,
-            structured and actionable
-            learning material instantly.
+      <section className="py-24 border-t border-white/5 bg-slate-950/20">
+        <div className="max-w-5xl mx-auto px-6 text-center">
+          <h2 className="text-3xl md:text-4xl font-black tracking-tight">Analyze in Your Native Language</h2>
+          <p className="text-slate-400 text-sm md:text-base mt-3 max-w-xl mx-auto">
+            Choose your preferred study language. AI writes summaries, interview answers, and roadmap paths in the selected language.
           </p>
 
-          <div className="mt-12">
+          <div className="flex flex-wrap justify-center gap-3 mt-10">
+            {languages.map((lang, idx) => (
+              <span key={idx} className="bg-white/5 border border-white/10 text-slate-200 px-4.5 py-2.5 rounded-2xl text-sm font-bold shadow-sm hover:border-white/20 transition-all cursor-default">
+                {lang.native} <span className="text-slate-500 text-xs font-semibold">({lang.label})</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
 
-            <Link
-              href={
-                user
-                  ? "/dashboard"
-                  : "/login"
-              }
-              className="inline-flex items-center gap-3 bg-blue-600 hover:bg-blue-700 px-10 py-5 rounded-2xl text-xl font-semibold transition-all hover:scale-105 shadow-[0_10px_50px_rgba(37,99,235,0.4)]"
-            >
 
-              Start Learning Now
 
-              <ArrowRight size={22} />
+      {/* ======================================================
+          FAQ SECTION
+      ====================================================== */}
+      <section className="py-24 border-t border-white/5 bg-slate-950/20">
+        <div className="max-w-3xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight">Frequently Asked Questions</h2>
+            <p className="text-slate-400 text-sm md:text-base mt-3">
+              Everything you need to know about the AI video analysis system.
+            </p>
+          </div>
 
-            </Link>
+          <div className="space-y-4">
+            {faqs.map((faq, idx) => {
+              const isOpen = activeFaq === idx;
+              return (
+                <div key={idx} className="border border-white/10 rounded-2xl bg-[#0b0f19]/30 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setActiveFaq(isOpen ? null : idx)}
+                    className="w-full flex items-center justify-between p-5 text-left text-white font-bold text-sm md:text-base hover:bg-white/5 transition-colors focus:outline-none"
+                  >
+                    <span>{faq.q}</span>
+                    <span className={`text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}>
+                      <ChevronDown size={18} />
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div className="p-5 pt-0 border-t border-white/5 text-slate-400 text-sm leading-relaxed text-left bg-black/10">
+                      {faq.a}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
 
+      {/* ======================================================
+          FINAL CONVERSION CARD
+      ====================================================== */}
+      <section className="py-24 border-t border-white/5">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="relative overflow-hidden rounded-[40px] bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border border-blue-500/20 p-10 md:p-20 text-center shadow-2xl">
+            <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_top,#3b82f6,transparent_45%)]" />
+            
+            <div className="relative z-10">
+              <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/25 px-4.5 py-2 rounded-full mb-8 text-xs font-bold text-blue-400 uppercase tracking-wider">
+                <Sparkles size={12} className="text-yellow-400" />
+                <span>AI Learning Revolution</span>
+              </div>
+
+              <h2 className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-tight">
+                Ready to Learn
+                <br />
+                10x Faster?
+              </h2>
+
+              <p className="text-slate-300 text-sm md:text-base mt-6 max-w-xl mx-auto leading-relaxed">
+                Reclaim your time today. Let our AI extract deep study guides, roadmaps, and code structures instantly from any tutorial video.
+              </p>
+
+              <div className="mt-10">
+                <Link
+                  href={user ? "/dashboard" : "/login"}
+                  className="group inline-flex items-center gap-2.5 bg-blue-600 hover:bg-blue-500 px-10 py-4.5 rounded-2xl font-bold text-base shadow-lg shadow-blue-500/20 active:scale-98 transition-all duration-200"
+                >
+                  <span>Start Analyzing Free</span>
+                  <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ======================================================
+          FOOTER
+      ====================================================== */}
+      <footer className="border-t border-white/5 py-16 bg-[#04060b]">
+        <div className="max-w-7xl mx-auto px-6 grid md:grid-cols-4 gap-10 text-left">
+          
+          {/* BRAND */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold">
+                <Sparkles size={14} />
+              </div>
+              <h3 className="font-black text-lg text-white leading-none">AI Analyzer</h3>
+            </div>
+            <p className="text-slate-500 text-xs leading-relaxed max-w-xs">
+              AI-powered learning platform to extract structured summaries, custom roadmaps, and interactive tests from educational video files.
+            </p>
+          </div>
+
+          {/* QUICK LINKS */}
+          <div>
+            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-4">Quick Links</h4>
+            <ul className="space-y-2.5 text-xs font-semibold text-slate-500">
+              <li><Link href="/dashboard" className="hover:text-white transition-colors">Dashboard</Link></li>
+              <li><Link href="/analyze" className="hover:text-white transition-colors">Analyze Video</Link></li>
+              <li><Link href="/buy-credits" className="hover:text-white transition-colors">Buy Credits</Link></li>
+            </ul>
+          </div>
+
+          {/* RESOURCES */}
+          <div>
+            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-4">Resources</h4>
+            <ul className="space-y-2.5 text-xs font-semibold text-slate-500">
+              <li><a href="#" className="hover:text-white transition-colors">Documentation</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Supported Languages</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">AI Learning OS</a></li>
+            </ul>
+          </div>
+
+          {/* LEGAL */}
+          <div>
+            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-4">Legal</h4>
+            <ul className="space-y-2.5 text-xs font-semibold text-slate-500">
+              <li><a href="#" className="hover:text-white transition-colors">Terms of Service</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Privacy Policy</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Refund Guidelines</a></li>
+            </ul>
           </div>
 
         </div>
 
-      </section>
+        {/* BOTTOM METRICS */}
+        <div className="max-w-7xl mx-auto px-6 mt-12 pt-8 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-600 font-semibold">
+          <span>&copy; 2026 AI Analyzer Learning OS. All rights reserved.</span>
+          <div className="flex gap-4">
+            <a href="#" className="hover:text-white transition-colors">Twitter</a>
+            <a href="#" className="hover:text-white transition-colors">GitHub</a>
+            <a href="#" className="hover:text-white transition-colors">Discord</a>
+          </div>
+        </div>
+      </footer>
 
     </div>
   );

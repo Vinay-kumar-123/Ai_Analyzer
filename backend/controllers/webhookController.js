@@ -48,23 +48,52 @@ export const razorpayWebhook = async (req, res) => {
         Date.now() + 30 * 24 * 60 * 60 * 1000
       );
 
-      payment.paymentId = paymentId;
-      payment.status = "paid";
-      payment.source = "webhook";
-      payment.isCredited = true;
-      payment.expiresAt = expiry;
-
-      await payment.save();
-
-      await User.updateOne(
-        { _id: payment.user },
+      // 🔥 atomic check & update (prevents duplicate credits with concurrent verify API)
+      const updatedPayment = await Payment.findOneAndUpdate(
+        { orderId, isCredited: false },
         {
-          $inc: { credits: payment.credits },
-          $set: { creditsExpiry: expiry },
-        }
+          $set: {
+            paymentId,
+            status: "paid",
+            source: "webhook",
+            isCredited: true,
+            expiresAt: expiry,
+          },
+        },
+        { returnDocument: "after" }
       );
 
-      console.log("🎉 Credits added via webhook");
+      if (!updatedPayment) {
+        console.log("⚠️ Payment already credited concurrently or not found");
+        return res.json({ ok: true });
+      }
+
+      try {
+        const userDoc = await User.findById(updatedPayment.user);
+        if (!userDoc) {
+          throw new Error("User not found");
+        }
+        const isExpired = userDoc.creditsExpiry && new Date() > userDoc.creditsExpiry;
+        const finalCredits = isExpired ? updatedPayment.credits : (userDoc.credits || 0) + updatedPayment.credits;
+
+        await User.updateOne(
+          { _id: updatedPayment.user },
+          {
+            $set: {
+              credits: finalCredits,
+              creditsExpiry: expiry,
+            },
+          }
+        );
+        console.log("🎉 Credits added via webhook");
+      } catch (userUpdateError) {
+        // 🔥 Rollback state to allow subsequent retries/webhooks
+        await Payment.updateOne(
+          { _id: updatedPayment._id },
+          { $set: { isCredited: false, status: "created" } }
+        );
+        throw userUpdateError;
+      }
     }
 
     res.json({ ok: true });

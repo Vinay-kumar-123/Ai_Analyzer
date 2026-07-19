@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { Suspense, lazy, useMemo } from "react";
 
@@ -39,11 +39,14 @@ const COMPONENTS = {
 
 function LoadingFallback() {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-10 backdrop-blur-md">
-      <div className="flex items-center gap-3">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-        <span className="text-gray-300">Loading section...</span>
+    <div className="rounded-3xl border border-white/5 bg-[#0b0f19]/30 p-8 space-y-6 animate-pulse text-left">
+      <div className="h-6 bg-white/10 rounded-lg w-1/4" />
+      <div className="space-y-3">
+        <div className="h-4 bg-white/5 rounded-lg w-full" />
+        <div className="h-4 bg-white/5 rounded-lg w-5/6" />
+        <div className="h-4 bg-white/5 rounded-lg w-4/6" />
       </div>
+      <div className="h-40 bg-white/5 rounded-2xl w-full" />
     </div>
   );
 }
