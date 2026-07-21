@@ -15,6 +15,7 @@ import { useLazyGeneration, analysisHasContent } from "@/app/result/hooks/useLaz
 
 import { getAnalysis } from "@/app/result/services/resultApi";
 
+import { useAuth } from "@/contexts/AuthContext";
 import {
   LoadingScreen,
   FailedScreen,
@@ -130,7 +131,7 @@ export default function ResultPage() {
     } finally {
       setLoading(false);
     }
-  }, [id, replaceAnalysis, setLoading, setError]);
+  }, [id, router, replaceAnalysis, setLoading, setError]);
 
   useEffect(() => {
     if (initializedRef.current) return;
@@ -149,13 +150,39 @@ export default function ResultPage() {
     );
   }, [analysis?.status]);
 
+  const { fetchCurrentUser } = useAuth();
+  const rehydratingRef = useRef(false);
+
   /*
    * Stable callbacks — usePolling stores these in refs so the polling loop
    * never restarts when the parent re-renders.
    */
   const handlePollingSuccess = useCallback(
-    (updated) => mergeAnalysis(updated),
-    [mergeAnalysis],
+    async (updated) => {
+      if (updated?.status === "completed") {
+        if (rehydratingRef.current) return;
+        rehydratingRef.current = true;
+
+        try {
+          // Rehydrate full document on completion
+          const fullRes = await getAnalysis(id);
+          if (fullRes?.success && fullRes?.data) {
+            replaceAnalysis(fullRes.data);
+          } else {
+            mergeAnalysis(updated);
+          }
+          // Synchronize Navbar user credits immediately
+          if (fetchCurrentUser) {
+            void fetchCurrentUser();
+          }
+        } catch {
+          mergeAnalysis(updated);
+        }
+      } else {
+        mergeAnalysis(updated);
+      }
+    },
+    [id, replaceAnalysis, mergeAnalysis, fetchCurrentUser],
   );
 
   const handlePollingError = useCallback(

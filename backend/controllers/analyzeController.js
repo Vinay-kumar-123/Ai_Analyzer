@@ -15,7 +15,8 @@ import { CURRENT_AI_VERSION } from "../config/ai.js";
 import UserAnalysis from "../models/UserAnalysis.js";
 
 import { runLazyGeneration } from "../services/ai.service.js";
-import { normalizeOutput } from "../services/shared/content.normalizer.js";
+import { normalizeOutput }   from "../services/shared/content.normalizer.js";
+import { executeGenerator }  from "../generators/generator.registry.js";
 
 import {
   MAX_VIDEO_DURATION_SECONDS,
@@ -681,9 +682,10 @@ const getAnalysisForUser = async (id, userId) => {
  * Maps each lazy part to its boolean flag field in the Analysis schema.
  */
 const lazyFlagMap = {
-  notes:   "notesGenerated",
-  quiz:    "quizGenerated",
-  roadmap: "roadmapGenerated",
+  notes:      "notesGenerated",
+  quiz:       "quizGenerated",
+  roadmap:    "roadmapGenerated",
+  flashcards: "flashcardsGenerated",
 };
 
 /**
@@ -691,9 +693,10 @@ const lazyFlagMap = {
  * These are a secondary sanity check — the flag is the authoritative signal.
  */
 const lazyCacheCheckFields = {
-  notes:   ["notes"],
-  quiz:    ["quiz"],
-  roadmap: ["roadmap"],
+  notes:      ["notes"],
+  quiz:       ["quiz"],
+  roadmap:    ["roadmap"],
+  flashcards: ["flashcards"],
 };
 
 const acquireLazyLock = async (analysisId, part) => {
@@ -712,6 +715,8 @@ const releaseLazyLock = async (lockKey) => {
   try { await getRedisClient().del(lockKey); } catch { /* ignore */ }
 };
 
+import { buildKnowledgeCoreFallback } from "../services/knowledge/knowledgeCore.builder.js";
+
 const performLazyGeneration = async (analysis, part) => {
   if (!analysis.transcript?.trim()) {
     throw new Error(
@@ -719,12 +724,39 @@ const performLazyGeneration = async (analysis, part) => {
     );
   }
 
-  const generatePromise = runLazyGeneration({
-    transcript: analysis.transcript,
-    goal: analysis.goal,
-    language: analysis.language,
-    part,
-  });
+  const sourceMeta = {
+    videoId:     extractVideoId(analysis.youtubeUrl) || "",
+    videoTitle:  analysis.videoTitle || "",
+    language:    analysis.language   || "english",
+    duration:    analysis.duration   || 0,
+  };
+
+  let generatePromise;
+
+  if (part === "flashcards") {
+    // Knowledge Core Priority 1: Use stored knowledgeCore if present.
+    // Knowledge Core Priority 2: Build IN-MEMORY non-persisted fallback knowledgeCore.
+    // Knowledge Core Priority 3: Fall back to raw sections / transcript.
+    const knowledgeCore = analysis.knowledgeCore || buildKnowledgeCoreFallback(analysis);
+    const useSections   = !!(analysis.notesGenerated && analysis.sections?.length);
+
+    generatePromise = executeGenerator("flashcards", {
+      transcript:    analysis.transcript,
+      goal:          analysis.goal,
+      language:      analysis.language,
+      sections:      analysis.sections || [],
+      useSections,
+      knowledgeCore,
+    });
+  } else {
+    generatePromise = runLazyGeneration({
+      transcript: analysis.transcript,
+      goal:       analysis.goal,
+      language:   analysis.language,
+      part,
+      sourceMeta,
+    });
+  }
 
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => {
@@ -736,16 +768,20 @@ const performLazyGeneration = async (analysis, part) => {
 
   const raw = await Promise.race([generatePromise, timeoutPromise]);
 
-  // Normalize exactly once here. runLazyGeneration returns raw generator output.
-  return normalizeOutput(raw);
+  // Normalize exactly once here. Generators return raw output.
+  return normalizeOutput(raw, sourceMeta);
 };
 
 const updateLazyContent = async (id, part, normalized) => {
   const updates = { [lazyFlagMap[part]]: true };
 
   if (part === "notes") {
-    updates.notes    = normalized.notes;
-    updates.sections = normalized.sections;
+    updates.learningObjectives = normalized.learningObjectives;
+    updates.notes              = normalized.notes;
+    updates.sections           = normalized.sections;
+    if (normalized.knowledgeCore) {
+      updates.knowledgeCore = normalized.knowledgeCore;
+    }
   }
 
   if (part === "quiz") {
@@ -753,9 +789,13 @@ const updateLazyContent = async (id, part, normalized) => {
   }
 
   if (part === "roadmap") {
-    updates.roadmap      = normalized.roadmap;
-    updates.learningPath = normalized.learningPath;
+    updates.roadmap       = normalized.roadmap;
+    updates.learningPath  = normalized.learningPath;
     updates.executionPlan = normalized.executionPlan;
+  }
+
+  if (part === "flashcards") {
+    updates.flashcards = normalized.flashcards;
   }
 
   return Analysis.findByIdAndUpdate(id, { $set: updates }, { returnDocument: "after" });
@@ -826,6 +866,7 @@ const getLazyHandler = (part) =>
 // LAZY ENDPOINT EXPORTS
 // ======================================================
 
-export const getNotes   = getLazyHandler("notes");
-export const getQuiz    = getLazyHandler("quiz");
-export const getRoadmap = getLazyHandler("roadmap");
+export const getNotes      = getLazyHandler("notes");
+export const getQuiz       = getLazyHandler("quiz");
+export const getRoadmap    = getLazyHandler("roadmap");
+export const getFlashcards = getLazyHandler("flashcards");

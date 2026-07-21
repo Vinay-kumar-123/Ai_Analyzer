@@ -1,9 +1,12 @@
-﻿import {
+import {
   FiActivity,
   FiBook,
   FiCheckCircle,
   FiMap,
   FiAward,
+  FiLayers,
+  FiMessageSquare,
+  FiZap,
 } from "react-icons/fi";
 
 /**
@@ -51,6 +54,18 @@ export const RESULT_TABS = [
   },
 
   {
+    id: "revision",
+    label: "5-Min Revision",
+    icon: FiZap,
+
+    alwaysVisible: true,
+    lazy: false,
+
+    cacheKey: "revision",
+    route: null,
+  },
+
+  {
     id: "notes",
     label: "Notes",
     icon: FiBook,
@@ -84,6 +99,30 @@ export const RESULT_TABS = [
 
     cacheKey: "quiz",
     route: "quiz",
+  },
+
+  {
+    id: "flashcards",
+    label: "Flashcards",
+    icon: FiLayers,
+
+    alwaysVisible: true,
+    lazy: true,
+
+    cacheKey: "flashcards",
+    route: "flashcards",
+  },
+
+  {
+    id: "tutor",
+    label: "AI Tutor",
+    icon: FiMessageSquare,
+
+    alwaysVisible: true,
+    lazy: false,
+
+    cacheKey: "tutor",
+    route: null,
   },
 ];
 

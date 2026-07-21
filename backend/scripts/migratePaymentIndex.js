@@ -10,7 +10,13 @@ const runMigration = async () => {
     console.log("🚀 Starting Payment index migration...");
     await connectDB();
 
-    const db = mongoose.connection.db;
+    const db = mongoose.connection.client ? mongoose.connection.client.db() : mongoose.connection.db;
+    if (!db) {
+      console.log("ℹ️ Database connection not ready. Syncing indexes naturally...");
+      await Payment.createIndexes();
+      console.log("✅ Indexes synchronized successfully");
+      return;
+    }
     
     // Check if the payments collection exists
     const collections = await db.listCollections({ name: "payments" }).toArray();
@@ -49,4 +55,6 @@ const runMigration = async () => {
   }
 };
 
-runMigration();
+if (process.argv[1] && process.argv[1].includes("migratePaymentIndex")) {
+  runMigration();
+}

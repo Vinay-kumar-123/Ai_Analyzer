@@ -21,8 +21,8 @@ const quizSchema = new mongoose.Schema(
 
 const noteSectionSchema = new mongoose.Schema(
   {
-    title: { type: String, default: "", trim: true },
-    content: { type: String, default: "" },
+    title:     { type: String, default: "", trim: true },
+    content:   { type: String, default: "" },
     type: {
       type: String,
       enum: [
@@ -36,9 +36,81 @@ const noteSectionSchema = new mongoose.Schema(
       enum: ["high", "medium", "low"],
       default: "medium",
     },
-    order: { type: Number, default: 0 },
+    // Added in Notes v2 — difficulty badge and next-topic connector
+    difficulty: {
+      type: String,
+      enum: ["beginner", "intermediate", "advanced"],
+      default: "beginner",
+    },
+    nextTopic: { type: String, default: "", trim: true },
+    order:     { type: Number, default: 0 },
   },
   { _id: false },
+);
+
+// ── Flashcard sub-schema ─────────────────────────────────────────────────────
+
+const flashcardSchema = new mongoose.Schema(
+  {
+    question:   { type: String, default: "" },
+    answer:     { type: String, default: "" },
+    type: {
+      type: String,
+      enum: ["definition", "concept", "difference", "true_false", "code_recall", "scenario"],
+      default: "concept",
+    },
+    difficulty: {
+      type: String,
+      enum: ["easy", "medium", "hard"],
+      default: "easy",
+    },
+    tags: { type: [String], default: [] },
+  },
+  { _id: false },
+);
+
+// ── Knowledge Core sub-schema ────────────────────────────────────────────────
+// Graph-ready, versioned internal representation for future learning OS features.
+// NOT exposed directly to the UI. Default null for backward compatibility.
+
+const knowledgeCoreMetadataSchema = new mongoose.Schema(
+  {
+    schemaVersion:  { type: String, default: "v1" },
+    aiVersion:      { type: String, default: "v5" },
+    promptVersion:  { type: String, default: "v1" },
+    generatedAt:    { type: Date,   default: Date.now },
+    domain:         { type: String, default: "general" },
+    level:          { type: String, enum: ["beginner", "intermediate", "advanced"], default: "beginner" },
+    sourceType:     { type: String, default: "youtube" },
+    sourceLanguage: { type: String, default: "english" },
+    videoDuration:  { type: Number, default: 0 },
+    videoId:        { type: String, default: "" },
+    videoTitle:     { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const knowledgeCoreSchema = new mongoose.Schema(
+  {
+    metadata:          { type: knowledgeCoreMetadataSchema, default: () => ({}) },
+    topics:            { type: [mongoose.Schema.Types.Mixed], default: [] }, // [{ id, name }]
+    concepts:          { type: [mongoose.Schema.Types.Mixed], default: [] }, // [{ id, name, explanation, importance, confidence }]
+    definitions:       { type: [mongoose.Schema.Types.Mixed], default: [] }, // [{ id, term, definition, confidence }]
+    comparisons:       { type: [mongoose.Schema.Types.Mixed], default: [] }, // [{ id, subjectA, subjectB, difference, confidence }]
+    prerequisites:     { type: [String], default: [] },
+    commands:          { type: [String], default: [] },
+    formulas:          { type: [mongoose.Schema.Types.Mixed], default: [] }, // [{ id, name, formula, explanation, confidence }]
+    glossary:          { type: [mongoose.Schema.Types.Mixed], default: [] }, // [{ id, term, definition }]
+    relationships:     { type: [mongoose.Schema.Types.Mixed], default: [] }, // [{ id, sourceId, targetId, relationship, confidence }]
+    realWorldExamples: { type: [String], default: [] },
+    bestPractices:     { type: [String], default: [] },
+    commonMistakes:    { type: [String], default: [] },
+    revisionPoints:    { type: [String], default: [] },
+    interviewInsights: { type: [String], default: [] },
+    timeline:          { type: [mongoose.Schema.Types.Mixed], default: [] }, // [{ step, title, description }]
+    references:        { type: [String], default: [] },
+  },
+  { _id: false }
 );
 
 const executionPlanSchema = new mongoose.Schema(
@@ -119,7 +191,8 @@ const analysisSchema = new mongoose.Schema(
     },
 
     // ── Lazy: Notes ──────────────────────────────────────
-    notes:    { type: String, default: "" },
+    learningObjectives: { type: String, default: "" },
+    notes:              { type: String, default: "" },
     sections: {
       type: [noteSectionSchema],
       default: [],
@@ -175,10 +248,26 @@ const analysisSchema = new mongoose.Schema(
     cacheHits:      { type: Number, default: 0 },
     lastAccessedAt: { type: Date, default: null },
 
+    // ── Lazy: Flashcards ─────────────────────────────────
+    flashcards: {
+      type: [flashcardSchema],
+      default: [],
+      validate: maxArrayLen(200, "flashcards"),
+    },
+
+    // ── Internal: Knowledge Core ──────────────────────────
+    // Internal canonical representation (graph-ready).
+    // Default null ensures zero migration needed for historical analyses.
+    knowledgeCore: {
+      type: knowledgeCoreSchema,
+      default: null,
+    },
+
     // ── Lazy Generation Flags ────────────────────────────
-    notesGenerated:   { type: Boolean, default: false, index: true },
-    quizGenerated:    { type: Boolean, default: false, index: true },
-    roadmapGenerated: { type: Boolean, default: false, index: true },
+    notesGenerated:      { type: Boolean, default: false, index: true },
+    quizGenerated:       { type: Boolean, default: false, index: true },
+    roadmapGenerated:    { type: Boolean, default: false, index: true },
+    flashcardsGenerated: { type: Boolean, default: false, index: true },
   },
 
   { timestamps: true, minimize: false },
@@ -219,10 +308,11 @@ analysisSchema.pre("save", function () {
     }));
   }
 
-  if (this.keyPoints?.length > 100) this.keyPoints = this.keyPoints.slice(0, 100);
-  if (this.roadmap?.length   > 50)  this.roadmap   = this.roadmap.slice(0, 50);
-  if (this.sections?.length  > 50)  this.sections  = this.sections.slice(0, 50);
-  if (this.quiz?.length      > 50)  this.quiz      = this.quiz.slice(0, 50);
+  if (this.keyPoints?.length  > 100) this.keyPoints  = this.keyPoints.slice(0, 100);
+  if (this.roadmap?.length    > 50)  this.roadmap    = this.roadmap.slice(0, 50);
+  if (this.sections?.length   > 50)  this.sections   = this.sections.slice(0, 50);
+  if (this.quiz?.length       > 50)  this.quiz       = this.quiz.slice(0, 50);
+  if (this.flashcards?.length > 200) this.flashcards = this.flashcards.slice(0, 200);
 
   if (this.startedAt && this.completedAt && !this.processingTime) {
     this.processingTime = this.completedAt.getTime() - this.startedAt.getTime();

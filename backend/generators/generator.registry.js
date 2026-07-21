@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ============================================================================
  * AI Learning OS
  * Generator Registry
@@ -13,14 +13,16 @@
  * ============================================================================
  */
 
-import { generateNotes   } from "./notes.generator.js";
-import { generateQuiz    } from "./quiz.generator.js";
-import { generateRoadmap } from "./roadmap.generator.js";
+import { generateNotes      } from "./notes.generator.js";
+import { generateQuiz       } from "./quiz.generator.js";
+import { generateRoadmap    } from "./roadmap.generator.js";
+import { generateFlashcards } from "./flashcards.generator.js";
 
 export const GENERATORS = Object.freeze({
-  notes:   generateNotes,
-  quiz:    generateQuiz,
-  roadmap: generateRoadmap,
+  notes:      generateNotes,
+  quiz:       generateQuiz,
+  roadmap:    generateRoadmap,
+  flashcards: generateFlashcards,
 });
 
 export function hasGenerator(type) {

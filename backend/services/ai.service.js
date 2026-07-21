@@ -1,4 +1,4 @@
-﻿import { YoutubeTranscript } from "youtube-transcript";
+import { YoutubeTranscript } from "youtube-transcript";
 
 import {
   MAX_TRANSCRIPT_CHARS,
@@ -106,10 +106,11 @@ export const runLazyGeneration = async ({
   goal = "student",
   language = "english",
   part,
+  sourceMeta = {},
 }) => {
   validateTranscript(transcript);
 
-  return executeGenerator(part || "notes", { transcript, goal, language });
+  return executeGenerator(part || "notes", { transcript, goal, language, sourceMeta });
 };
 
 export default {

@@ -144,7 +144,7 @@ const ErrorWarning = ({ message }) => (
 
 // ─── PAGE ─────────────────────────────────────────────────────────────────────
 export default function AnalyzePage() {
-  const { user } = useAuth();
+  const { user, fetchCurrentUser } = useAuth();
   const router = useRouter();
 
   const [youtubeUrl,    setYoutubeUrl]    = useState("");
@@ -221,6 +221,9 @@ export default function AnalyzePage() {
       }
 
       toast.success("AI Analysis Started 🚀");
+      if (fetchCurrentUser) {
+        void fetchCurrentUser();
+      }
       router.push(`/result/${data.analysisId}`);
 
     } catch (err) {

@@ -130,6 +130,17 @@ async function generateQuiz(analysisId, signal) {
   });
 }
 
+/**
+ * Generate flashcards for an analysis.
+ * Returns: { flashcards: [{question, answer, type, difficulty, tags}] }
+ */
+async function generateFlashcards(analysisId, signal) {
+  return request(`/api/analyze/${analysisId}/flashcards`, {
+    method: "GET",
+    signal,
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Route → Generator Dispatch Map                                               */
 /* -------------------------------------------------------------------------- */
@@ -141,16 +152,17 @@ async function generateQuiz(analysisId, signal) {
  * The hook dispatches by tab.route, not by tab.id.
  */
 const ROUTE_GENERATORS = Object.freeze({
-  notes:   generateNotes,
-  roadmap: generateRoadmap,
-  quiz:    generateQuiz,
+  notes:      generateNotes,
+  roadmap:    generateRoadmap,
+  quiz:       generateQuiz,
+  flashcards: generateFlashcards,
 });
 
 /**
  * Execute the generator for a given backend route.
  *
  * @param {string} analysisId  - MongoDB ObjectId.
- * @param {string} route       - Backend route key ("notes" | "roadmap" | "quiz").
+ * @param {string} route       - Backend route key ("notes" | "roadmap" | "quiz" | "flashcards").
  * @param {AbortSignal} signal - AbortController signal for cancellation.
  * @returns {Promise<object>}  - Normalised API response.
  */
@@ -164,9 +176,36 @@ export async function generateLazyContent(analysisId, route, signal) {
   return generator(analysisId, signal);
 }
 
-export default {
+export async function getTutorStatus(analysisId, signal) {
+  return request(`/api/analyze/${analysisId}/tutor/status`, {
+    method: "GET",
+    signal,
+  });
+}
+
+export async function sendTutorMessage(analysisId, message, signal) {
+  return request(`/api/analyze/${analysisId}/tutor/chat`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+    signal,
+  });
+}
+
+export async function purchaseTutorPack(analysisId, signal) {
+  return request(`/api/analyze/${analysisId}/tutor/purchase-pack`, {
+    method: "POST",
+    signal,
+  });
+}
+
+const resultApi = {
   getAnalysis,
   getAnalysisStatus,
   generateLazyContent,
+  getTutorStatus,
+  sendTutorMessage,
+  purchaseTutorPack,
 };
+
+export default resultApi;
 

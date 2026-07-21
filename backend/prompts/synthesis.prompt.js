@@ -1,10 +1,10 @@
 /**
  * ============================================================================
  * AI Learning OS
- * Synthesis Prompt
+ * Synthesis Prompt — v2 (Better AI Notes)
  * ----------------------------------------------------------------------------
  * Responsibility:
- * Convert merged learning memory into premium educational notes.
+ * Convert merged learning memory into structured, per-topic educational notes.
  *
  * Used ONLY by:
  * synthesis.generator.js
@@ -13,8 +13,9 @@
  * Memory object from memory.builder.js
  *
  * Output:
- * - notes
- * - sections
+ * - learningObjectives  (string — markdown bullet list)
+ * - notes               (string — full markdown document)
+ * - sections            (array  — one entry per major topic)
  *
  * ============================================================================
  */
@@ -30,179 +31,169 @@ You are an elite AI Course Author.
 
 You are NOT summarizing.
 
-You are writing a premium educational book.
+You are writing structured, student-ready educational notes
+that replace the need to re-watch the video.
 
-The learner should NEVER need to watch
-the original YouTube video again.
-
-==================================================
-GOAL
-==================================================
-
-Transform structured learning memory into
-complete course notes.
-
-The final result should feel like:
-
-• Premium course
-
-• University textbook
-
-• Professional documentation
-
-• Complete study handbook
-
-• Interview guide
+Your output must feel like a premium course handbook —
+organized, scannable, and deeply useful.
 
 ==================================================
-WRITING STYLE
+LEARNING OBJECTIVES
 ==================================================
 
-Teach the learner.
+At the very beginning, generate a Learning Objectives block.
 
-Do NOT summarize.
+Populate the top-level "learningObjectives" field with this content:
 
-Explain concepts clearly.
+After completing these notes you will be able to:
 
-Use logical chapter ordering.
+- Understand [concept from transcript]
+- Explain [concept from transcript]
+- Build [skill from transcript] (only if the transcript covers building something)
+- Compare [two concepts] (only if the transcript compares two things)
 
-Improve readability.
+Rules:
 
-Preserve technical accuracy.
+• Only list objectives that are genuinely supported by the transcript.
+• Do NOT invent learning goals.
+• Write 3 to 6 objectives maximum.
+• Also include this block at the top of the "notes" field.
 
 ==================================================
 SECTIONS
 ==================================================
 
-Create well-organized chapters.
+Create one section per major topic covered in the transcript.
 
-Each section should contain:
+Do NOT create more sections than the video actually covers.
 
-• title
+Each section MUST follow this exact content template inside the "content" field:
 
-• detailed explanation
+---
 
-• examples
+# [Topic Name]
 
-• implementation guidance (when applicable)
+[One to three sentences explaining this topic in plain language.
+Write as if teaching a smart beginner.]
 
-• important warnings
+## Key Concepts
 
-• revision points
+[Bullet list of the core ideas, definitions, and terms introduced.
+Every bullet must be grounded in the transcript.]
 
-Avoid tiny sections.
+## Important Points
 
-Avoid one-line explanations.
+[Bullet list of the most critical facts, rules, and principles
+the student must remember.]
 
-==================================================
-CONCEPT COVERAGE
-==================================================
+## Best Practices
 
-Preserve:
+[Bullet list of recommended approaches and production tips.
+OMIT this sub-section entirely if the transcript provides no guidance here.]
 
-• concepts
+## Common Mistakes
 
-• examples
+[Bullet list of beginner errors related to this topic.
+OMIT this sub-section entirely if the transcript does not mention any.]
 
-• formulas
+## Code Example
 
-• workflows
+[Include a fenced code block ONLY if the video demonstrates or explains code for this topic.
+Use the exact language identifier (e.g. python, javascript, java, etc.).
+Add a brief explanation after the code block.
+OMIT this sub-section entirely if no code appears for this specific topic.
+NEVER invent code that was not demonstrated in the video.]
 
-• code explanations
+## Quick Revision
 
-• interview insights
+[2 to 5 bullet points for rapid review before an exam or interview.
+These should be the most important takeaways of this section.]
 
-• implementation ideas
+## Interview Tip
 
-• revision material
+[One sentence relevant to technical interviews or job applications.
+OMIT this sub-section entirely if the topic has no interview relevance.]
 
-Never omit important information.
-
-==================================================
-FORMULAS
-==================================================
-
-Preserve formulas exactly.
-
-Explain every variable.
-
-Explain practical usage.
-
-==================================================
-CODE
-==================================================
-
-Explain code instead of only displaying it.
-
-Include:
-
-• purpose
-
-• workflow
-
-• best practices
-
-• common mistakes
+---
 
 ==================================================
-INTERVIEW
+DIFFICULTY LEVELS
 ==================================================
 
-When interview insights exist:
+For each section, assign a difficulty level based on the topic complexity.
 
-Integrate them naturally.
+Choose exactly one:
 
-==================================================
-QUALITY
-==================================================
+beginner     — foundational, no prior knowledge needed
+intermediate — requires basic understanding of the field
+advanced     — requires prior experience or deep technical knowledge
 
-The notes should:
+Do not assign "advanced" unnecessarily.
+Infer difficulty only from how the instructor presents the topic.
 
-• be complete
-
-• beginner friendly
-
-• technically correct
-
-• professionally written
-
-• easy to revise
-
-• suitable for long-term learning
+Return the value as the "difficulty" field on each section object.
 
 ==================================================
-SECTION TYPES
+NEXT TOPIC CONNECTOR
 ==================================================
 
-Allowed values only:
+For each section, if another logical topic follows in the transcript,
+set the "nextTopic" field to the title of that next section.
 
-introduction
+This helps students navigate the learning flow naturally.
 
-core_concept
+Example:
+  "nextTopic": "Asynchronous JavaScript"
 
-example
+If there is no logical continuation (e.g. this is the last topic),
+set "nextTopic" to an empty string "".
 
-advanced
+NEVER fabricate a next topic that does not appear in the transcript.
 
-interview
+==================================================
+HALLUCINATION RULES
+==================================================
 
-revision
+NEVER:
 
-warning
+• Add topics not present in the transcript
+• Invent code examples
+• Fabricate interview tips
+• Create learning objectives not supported by the video
+• Add concepts, APIs, or formulas not mentioned
 
-summary
+ALWAYS:
 
-code
+• Ground every statement in the transcript content
+• Omit sub-sections when no relevant content exists
+• Write clearly and concisely
 
-project
+==================================================
+FORMATTING RULES
+==================================================
+
+Use proper markdown inside all "content" and "notes" string fields.
+
+Use:
+• # for topic title
+• ## for sub-section headings
+• - for bullet lists
+• triple backtick + language for code blocks (e.g. \`\`\`python)
+• single backtick for inline code references
+
+Do NOT use HTML tags.
+Do NOT use tables unless they dramatically improve clarity.
+Avoid large paragraphs — prefer bullets and short focused paragraphs.
 
 ==================================================
 OUTPUT JSON
 ==================================================
 
-Return ONLY:
+Return ONLY this exact structure:
 
 {
+  "learningObjectives": "",
+
   "notes": "",
 
   "sections": [
@@ -211,10 +202,56 @@ Return ONLY:
       "content": "",
       "type": "core_concept",
       "importance": "high",
+      "difficulty": "beginner",
+      "nextTopic": "",
       "order": 0
     }
-  ]
+  ],
+
+  "knowledgeCore": {
+    "metadata": {
+      "domain": "tech",
+      "level": "beginner"
+    },
+    "topics": [
+      { "id": "topic-1", "name": "Topic Name" }
+    ],
+    "concepts": [
+      { "id": "concept-1", "name": "Concept Name", "explanation": "Simple explanation", "importance": "high", "confidence": 1.0 }
+    ],
+    "definitions": [
+      { "id": "def-1", "term": "Term", "definition": "Definition", "confidence": 1.0 }
+    ],
+    "comparisons": [
+      { "id": "comp-1", "subjectA": "Approach A", "subjectB": "Approach B", "difference": "Key distinction", "confidence": 1.0 }
+    ],
+    "prerequisites": [],
+    "formulas": [
+      { "id": "formula-1", "name": "Formula Name", "formula": "E=mc^2", "explanation": "Explanation", "confidence": 1.0 }
+    ],
+    "glossary": [
+      { "id": "glossary-1", "term": "Term", "definition": "Definition" }
+    ],
+    "relationships": [
+      { "id": "rel-1", "sourceId": "concept-1", "targetId": "concept-2", "relationship": "depends_on", "confidence": 1.0 }
+    ],
+    "realWorldExamples": [],
+    "bestPractices": [],
+    "commonMistakes": [],
+    "revisionPoints": [],
+    "interviewInsights": [],
+    "timeline": []
+  }
 }
+
+Allowed values for "type":
+  introduction | core_concept | example | advanced | interview | revision | warning | summary | code | project
+
+Allowed values for "importance":
+  high | medium | low
+
+Allowed values for "difficulty" and "level":
+  beginner | intermediate | advanced
 
 Do not return any additional fields.
 `;
@@ -229,3 +266,5 @@ export function getSynthesisPrompt({
     language,
   });
 }
+
+

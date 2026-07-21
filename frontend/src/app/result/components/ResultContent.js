@@ -23,18 +23,24 @@ import React, { Suspense, lazy, useMemo } from "react";
  * ============================================================================
  */
 
-const SummaryTab   = lazy(() => import("./tabs/SummaryTab"));
-const KeyPointsTab = lazy(() => import("./tabs/KeyPointsTab"));
-const NotesTab     = lazy(() => import("./tabs/NotesTab"));
-const RoadmapTab   = lazy(() => import("./tabs/RoadmapTab"));
-const QuizTab      = lazy(() => import("./tabs/QuizTab"));
+const SummaryTab    = lazy(() => import("./tabs/SummaryTab"));
+const KeyPointsTab  = lazy(() => import("./tabs/KeyPointsTab"));
+const RevisionTab   = lazy(() => import("./tabs/RevisionTab"));
+const NotesTab      = lazy(() => import("./tabs/NotesTab"));
+const RoadmapTab    = lazy(() => import("./tabs/RoadmapTab"));
+const QuizTab       = lazy(() => import("./tabs/QuizTab"));
+const FlashcardsTab = lazy(() => import("./tabs/FlashcardsTab"));
+const AITutorTab    = lazy(() => import("./tabs/AITutorTab"));
 
 const COMPONENTS = {
-  summary:   SummaryTab,
-  keypoints: KeyPointsTab,
-  notes:     NotesTab,
-  roadmap:   RoadmapTab,
-  quiz:      QuizTab,
+  summary:    SummaryTab,
+  keypoints:  KeyPointsTab,
+  revision:   RevisionTab,
+  notes:      NotesTab,
+  roadmap:    RoadmapTab,
+  quiz:       QuizTab,
+  flashcards: FlashcardsTab,
+  tutor:      AITutorTab,
 };
 
 function LoadingFallback() {

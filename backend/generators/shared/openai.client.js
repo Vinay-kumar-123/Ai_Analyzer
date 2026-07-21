@@ -1,4 +1,4 @@
-﻿import OpenAI from "openai";
+import OpenAI from "openai";
 
 /**
  * ============================================================================
@@ -49,10 +49,11 @@ export const DEFAULT_AI_CONFIG = Object.freeze({
  * FAST model is used for chunked notes processing; SMART for full generations.
  */
 export const TOKEN_LIMITS = Object.freeze({
-  SUMMARY: 2500,
-  NOTES:   8000,
-  QUIZ:    3500,
-  ROADMAP: 3000,
+  SUMMARY:    2500,
+  NOTES:      8000,
+  QUIZ:       3500,
+  ROADMAP:    3000,
+  FLASHCARDS: 5000,   // Flashcards can be higher count than quiz
 });
 
 /**

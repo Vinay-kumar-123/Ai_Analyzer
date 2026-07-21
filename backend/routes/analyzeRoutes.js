@@ -1,4 +1,4 @@
-﻿import express from "express";
+import express from "express";
 import rateLimit from "express-rate-limit";
 import {
   createYoutubeAnalysis,
@@ -10,7 +10,14 @@ import {
   getNotes,
   getQuiz,
   getRoadmap,
+  getFlashcards,
 } from "../controllers/analyzeController.js";
+
+import {
+  chatWithTutor,
+  purchaseTutorPackage,
+  getTutorStatus,
+} from "../controllers/tutorController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -66,8 +73,14 @@ router.get("/:id", protect, pollingLimiter, getAnalysisById);
 router.delete("/:id", protect, pollingLimiter, deleteAnalysis);
 
 // Lazy generation endpoints
-router.get("/:id/notes",   protect, generationLimiter, getNotes);
-router.get("/:id/quiz",    protect, generationLimiter, getQuiz);
-router.get("/:id/roadmap", protect, generationLimiter, getRoadmap);
+router.get("/:id/notes",       protect, generationLimiter, getNotes);
+router.get("/:id/quiz",        protect, generationLimiter, getQuiz);
+router.get("/:id/roadmap",     protect, generationLimiter, getRoadmap);
+router.get("/:id/flashcards",  protect, generationLimiter, getFlashcards);
+
+// AI Tutor endpoints
+router.get("/:id/tutor/status",        protect, pollingLimiter,    getTutorStatus);
+router.post("/:id/tutor/chat",         protect, generationLimiter, chatWithTutor);
+router.post("/:id/tutor/purchase-pack", protect, generationLimiter, purchaseTutorPackage);
 
 export default router;

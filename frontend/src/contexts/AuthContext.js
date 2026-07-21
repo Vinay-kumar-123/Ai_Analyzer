@@ -1,7 +1,6 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-
 import axios from "axios";
 
 const api = axios.create({
@@ -15,23 +14,22 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchCurrentUser();
-  }, []);
-
   const fetchCurrentUser = async () => {
     try {
       const response = await api.get("/api/auth/me");
-
       if (response.data.success) {
         setUser(response.data.user);
       }
-    } catch (error) {
+    } catch {
       setUser(null);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchCurrentUser();
+  }, []);
 
   const register = async ({ name, email, password, role }) => {
     try {
@@ -85,16 +83,18 @@ export function AuthProvider({ children }) {
     try {
       await api.post("/api/auth/refresh");
       await fetchCurrentUser();
-    } catch (error) {
+    } catch {
       setUser(null);
     }
   };
+
   const updateCredits = (newCredits) => {
     setUser((prev) => ({
       ...prev,
       credits: newCredits,
     }));
   };
+
   const logout = async () => {
     try {
       await api.post("/api/auth/logout");

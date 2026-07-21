@@ -11,6 +11,7 @@ export async function generateNotes({
   transcript,
   goal = "student",
   language = "english",
+  sourceMeta = {},
 }) {
   if (!transcript || typeof transcript !== "string") {
     throw new Error("Transcript is required.");
@@ -61,12 +62,17 @@ export async function generateNotes({
     memory,
     goal,
     language,
+    sourceMeta,
   });
 
   return {
+    learningObjectives: synthesis.learningObjectives,
+
     notes: synthesis.notes,
 
     sections: synthesis.sections,
+
+    knowledgeCore: synthesis.knowledgeCore,
 
     meta: {
       chunks: chunks.length,
