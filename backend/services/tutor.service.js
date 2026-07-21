@@ -213,7 +213,7 @@ export function enforceContextBudget({ ragContext, historyString, question }) {
     safeHist = safeHist.slice(overage);
   }
 
-  return `=== LEARNING CONTEXT ===\n${safeRag}\n\n=== CONVERSATION HISTORY ===\n${safeHist || "No previous history."}\n\n=== CURRENT STUDENT QUESTION ===\n${safeQ}`.trim();
+  return `=== LEARNING CONTEXT ===\n${safeRag}\n\n=== CONVERSATION HISTORY ===\n${safeHist || "No previous history."}\n\n=== CURRENT STUDENT QUESTION ===\n<student_question>\n${safeQ}\n</student_question>`.trim();
 }
 
 export default {

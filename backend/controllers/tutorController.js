@@ -136,32 +136,31 @@ export const purchaseTutorPackage = async (req, res) => {
       return res.status(404).json({ success: false, message: "Analysis mapping not found." });
     }
 
-    const user = await User.findById(userId);
-    if (!user || user.credits < 1) {
+    // Atomic credit deduction: deduct 1 credit ONLY IF credits >= 1
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: userId, credits: { $gte: 1 } },
+      { $inc: { credits: -1, creditsUsed: 1 } },
+      { returnDocument: "after" }
+    );
+
+    if (!updatedUser) {
       return res.status(400).json({
         success: false,
         message: "Insufficient credits. Please purchase credits to unlock more AI Tutor messages.",
       });
     }
 
-    // Deduct 1 credit atomically
-    await User.updateOne(
-      { _id: userId, credits: { $gte: 1 } },
-      { $inc: { credits: -1, creditsUsed: 1 } }
-    );
-
-    // Grant 1 package (+10 messages)
+    // Grant 1 package (+10 messages) ONLY after successful credit deduction
     userAnalysis.tutorPurchasedPackages += 1;
     await userAnalysis.save();
 
-    const updatedUser = await User.findById(userId).select("credits");
     const usage = calculateTutorUsage(userAnalysis);
 
     return res.status(200).json({
       success: true,
       message: "Unlocked 10 additional AI Tutor messages!",
       data: {
-        userCredits: updatedUser?.credits || 0,
+        userCredits: updatedUser.credits || 0,
         tutorPurchasedPackages: userAnalysis.tutorPurchasedPackages,
         usage,
       },
