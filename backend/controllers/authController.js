@@ -9,17 +9,19 @@ import {
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
+const isProduction = process.env.NODE_ENV === "production";
+
 const accessCookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "Strict",
+  secure: isProduction,
+  sameSite: isProduction ? "none" : "lax",
   maxAge: 15 * 60 * 1000,
 };
 
 const refreshCookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "Strict",
+  secure: isProduction,
+  sameSite: isProduction ? "none" : "lax",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 

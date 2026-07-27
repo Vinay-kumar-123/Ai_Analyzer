@@ -8,6 +8,11 @@ export const protect = async (req, res, next) => {
     let accessToken = req.cookies?.accessToken;
     const refreshToken = req.cookies?.refreshToken;
 
+    // Fallback: Check Authorization Bearer header if cookie is missing
+    if (!accessToken && req.headers.authorization?.startsWith("Bearer ")) {
+      accessToken = req.headers.authorization.split(" ")[1];
+    }
+
     // ❌ No tokens at all
     if (!accessToken && !refreshToken) {
       return res.status(401).json({
@@ -52,11 +57,13 @@ export const protect = async (req, res, next) => {
           { expiresIn: "15m" }
         );
 
+        const isProduction = process.env.NODE_ENV === "production";
+
         // 🍪 Set new cookie
         res.cookie("accessToken", newAccessToken, {
           httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "Strict",
+          secure: isProduction,
+          sameSite: isProduction ? "none" : "lax",
           maxAge: 15 * 60 * 1000,
         });
 
