@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
+import { GoogleOAuthProvider } from "@react-oauth/google";
 import axios from "axios";
 
 const api = axios.create({
@@ -9,6 +10,8 @@ const api = axios.create({
 });
 
 const AuthContext = createContext();
+
+const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -30,6 +33,24 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     fetchCurrentUser();
   }, []);
+
+  const googleLogin = async (idToken) => {
+    try {
+      const response = await api.post("/api/auth/google", { token: idToken });
+      if (response.data.success) {
+        setUser(response.data.user);
+        return {
+          success: true,
+          message: response.data.message || "Google authentication successful",
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: error.response?.data?.message || "Google authentication failed",
+      };
+    }
+  };
 
   const register = async ({ name, email, password, role }) => {
     try {
@@ -106,20 +127,23 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        register,
-        login,
-        logout,
-        updateCredits,
-        refreshSession,
-        fetchCurrentUser,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+    <GoogleOAuthProvider clientId={googleClientId}>
+      <AuthContext.Provider
+        value={{
+          user,
+          loading,
+          googleLogin,
+          register,
+          login,
+          logout,
+          updateCredits,
+          refreshSession,
+          fetchCurrentUser,
+        }}
+      >
+        {children}
+      </AuthContext.Provider>
+    </GoogleOAuthProvider>
   );
 }
 

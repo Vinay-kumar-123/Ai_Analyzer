@@ -16,7 +16,34 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: true,
+      required: false,
+    },
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+    picture: {
+      type: String,
+      default: null,
+    },
+    provider: {
+      type: String,
+      enum: ["google", "local", "github"],
+      default: "google",
+    },
+    emailVerified: {
+      type: Boolean,
+      default: true,
+    },
+    lastLogin: {
+      type: Date,
+      default: Date.now,
+    },
+    welcomeCreditsGiven: {
+      type: Boolean,
+      default: false,
     },
     role: {
       type: String,
@@ -29,7 +56,7 @@ const userSchema = new mongoose.Schema(
     },
     credits: {
       type: Number,
-      default: 10, // initial free credits
+      default: 0, // Assigned explicitly on registration/google auth
     },
     creditsExpiry: {
       type: Date,
@@ -43,4 +70,4 @@ const userSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-export default mongoose.model("User", userSchema);
+export default mongoose.models.User || mongoose.model("User", userSchema);
