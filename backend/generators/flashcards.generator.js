@@ -72,9 +72,15 @@ const EMPTY_RESULT = Object.freeze({ flashcards: [] });
  * @param {Array}    opts.sections      - Stored Notes sections from MongoDB
  * @param {boolean}  opts.useSections   - True when Notes have been generated
  * @param {Object}   opts.knowledgeCore - Knowledge Core object (or in-memory fallback)
+ * @param {Object}   opts.masterNotes   - Master Notes V3 object
  * @returns {string}  Serialized input for the AI
  */
-function buildFlashcardInput({ transcript, sections, useSections, knowledgeCore }) {
+function buildFlashcardInput({ masterNotes, transcript, sections, useSections, knowledgeCore }) {
+  // ── Strategy 0: Master Notes V3 (highest priority) ────────────────────
+  if (masterNotes) {
+    return JSON.stringify({ _strategy: "masterNotes", ...masterNotes });
+  }
+
   // ── Strategy 1: Knowledge Core (preferred) ─────────────────────────────
   // Uses the stable access layer helpers to retrieve normalized primitives.
   if (knowledgeCore) {
@@ -132,6 +138,7 @@ function buildFlashcardInput({ transcript, sections, useSections, knowledgeCore 
  * Generate study flashcards using Knowledge Core, stored Notes sections, or raw transcript.
  *
  * @param {Object}  opts
+ * @param {Object}  [opts.masterNotes]  - Master Notes V3 object
  * @param {string}  opts.transcript     - Raw transcript (fallback input)
  * @param {string}  [opts.goal]         - User's study goal
  * @param {string}  [opts.language]     - Output language

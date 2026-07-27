@@ -196,6 +196,36 @@ Return ONLY this exact structure:
 
   "notes": "",
 
+  "masterNotes": {
+    "title": "",
+    "overview": "",
+    "learningObjectives": [],
+    "modules": [
+      {
+        "id": "mod-1",
+        "title": "",
+        "concepts": [],
+        "explanation": "",
+        "importantPoints": [],
+        "examples": [],
+        "analogies": [],
+        "codeExamples": [],
+        "formulas": [],
+        "keywords": [],
+        "interviewQuestions": [],
+        "examNotes": [],
+        "commonMistakes": [],
+        "memoryTricks": [],
+        "practiceQuestions": [],
+        "quickRevision": []
+      }
+    ],
+    "glossary": [],
+    "cheatSheet": [],
+    "finalRevision": [],
+    "importantTakeaways": []
+  },
+
   "sections": [
     {
       "title": "",

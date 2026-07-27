@@ -69,15 +69,31 @@ function safeSections(value) {
     .sort((a, b) => a.order - b.order);
 }
 
+function safeMasterNotes(data = {}) {
+  const mn = data.masterNotes || {};
+  return {
+    title: safeString(mn.title),
+    overview: safeString(mn.overview),
+    learningObjectives: Array.isArray(mn.learningObjectives) ? mn.learningObjectives.map(safeString) : [],
+    modules: Array.isArray(mn.modules) ? mn.modules : [],
+    glossary: Array.isArray(mn.glossary) ? mn.glossary : [],
+    cheatSheet: Array.isArray(mn.cheatSheet) ? mn.cheatSheet : [],
+    finalRevision: Array.isArray(mn.finalRevision) ? mn.finalRevision.map(safeString) : [],
+    importantTakeaways: Array.isArray(mn.importantTakeaways) ? mn.importantTakeaways.map(safeString) : [],
+  };
+}
+
 function normalize(data = {}, sourceMeta = {}, rawMemoryText = "") {
   // Hybrid extraction: merge AI semantic output + deterministic parsing
   const rawCore = assembleKnowledgeCore(data.knowledgeCore, sourceMeta, rawMemoryText);
   const knowledgeCore = safeKnowledgeCore(rawCore, sourceMeta);
+  const masterNotes = safeMasterNotes(data);
 
   return {
     learningObjectives: safeString(data.learningObjectives),
     notes:              safeString(data.notes),
     sections:           safeSections(data.sections),
+    masterNotes,
     knowledgeCore,
   };
 }

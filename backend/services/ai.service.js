@@ -122,30 +122,52 @@ export const getTranscript = async (youtubeUrl, maxRetries = 3, targetLang = nul
   throw new Error(`Transcript unavailable: ${lastError?.message || "unknown error"}`);
 };
 
-// ─── Initial analysis (Summary + KeyPoints) ────────────────────────────────────
+// ─── Initial analysis (Master Notes V3 Pipeline) ─────────────────────────────
 export const runInitialAnalysis = async ({
   youtubeUrl,
   goal = "student",
   language = "english",
 }) => {
+  // Step 1: Transcript fetched EXACTLY ONCE
   const transcript = await getTranscript(youtubeUrl, 3, language);
-  const summary = await generateSummary({ transcript, goal, language });
-  return { transcript, ...summary };
+
+  // Step 2: Generate Master Notes V3 (Canonical Knowledge Base)
+  const notesResult = await generateNotes({ transcript, goal, language });
+
+  // Step 3: Generate Summary & Key Points consuming Notes V3 (NOT transcript)
+  const summaryResult = await generateSummary({
+    notesV3: notesResult.masterNotes || notesResult.notes || notesResult.sections,
+    goal,
+    language,
+  });
+
+  return {
+    transcript,
+    ...summaryResult,
+    learningObjectives: notesResult.learningObjectives,
+    notes:              notesResult.notes,
+    sections:           notesResult.sections,
+    masterNotes:        notesResult.masterNotes,
+    notesGenerated:     true,
+  };
 };
 
 // ─── Lazy generation ───────────────────────────────────────────────────────────
 // Returns the raw generator output.
 // Normalization is done once by the caller (performLazyGeneration in controller).
 export const runLazyGeneration = async ({
+  notesV3,
   transcript,
   goal = "student",
   language = "english",
   part,
   sourceMeta = {},
 }) => {
-  validateTranscript(transcript);
+  if (!notesV3 && transcript) {
+    validateTranscript(transcript);
+  }
 
-  return executeGenerator(part || "notes", { transcript, goal, language, sourceMeta });
+  return executeGenerator(part || "notes", { notesV3, transcript, goal, language, sourceMeta });
 };
 
 export default {

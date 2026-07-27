@@ -1,4 +1,4 @@
-﻿import { generate } from "./shared/generator.base.js";
+import { generate } from "./shared/generator.base.js";
 import { TOKEN_LIMITS } from "./shared/openai.client.js";
 
 import { getRoadmapPrompt } from "../prompts/roadmap.prompt.js";
@@ -48,17 +48,24 @@ function validateTranscript(transcript) {
 }
 
 export async function generateRoadmap({
+  notesV3,
   transcript,
   goal = "student",
   language = "english",
 }) {
-  validateTranscript(transcript);
+  const inputSource = notesV3
+    ? typeof notesV3 === "string" ? notesV3 : JSON.stringify(notesV3)
+    : transcript;
+
+  if (!inputSource || (typeof inputSource === "string" && !inputSource.trim())) {
+    return EMPTY_RESULT;
+  }
 
   // Truncate to fit within the 30k TPM limit for GPT-4o.
   const safeTranscript =
-    transcript.length > MAX_TRANSCRIPT_CHARS_FOR_AI
-      ? transcript.slice(0, MAX_TRANSCRIPT_CHARS_FOR_AI)
-      : transcript;
+    inputSource.length > MAX_TRANSCRIPT_CHARS_FOR_AI
+      ? inputSource.slice(0, MAX_TRANSCRIPT_CHARS_FOR_AI)
+      : inputSource;
 
   const prompt = getRoadmapPrompt({ goal, language });
 

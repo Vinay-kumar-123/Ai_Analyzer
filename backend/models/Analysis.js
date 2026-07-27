@@ -255,9 +255,14 @@ const analysisSchema = new mongoose.Schema(
       validate: maxArrayLen(200, "flashcards"),
     },
 
-    // ── Internal: Knowledge Core ──────────────────────────
+    // ── Internal: Knowledge Core & Master Notes V3 ─────────
     // Internal canonical representation (graph-ready).
     // Default null ensures zero migration needed for historical analyses.
+    masterNotes: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
     knowledgeCore: {
       type: knowledgeCoreSchema,
       default: null,

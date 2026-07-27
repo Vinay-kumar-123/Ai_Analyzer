@@ -72,6 +72,8 @@ export async function generateNotes({
 
     sections: synthesis.sections,
 
+    masterNotes: synthesis.masterNotes,
+
     knowledgeCore: synthesis.knowledgeCore,
 
     meta: {

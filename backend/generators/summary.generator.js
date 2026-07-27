@@ -20,12 +20,17 @@ import { getSummaryPrompt } from "../prompts/summary.prompt.js";
  */
 
 export async function generateSummary({
+  notesV3,
   transcript,
   goal = "student",
   language = "english",
 }) {
-  if (!transcript || typeof transcript !== "string") {
-    throw new Error("Transcript is required.");
+  const inputSource = notesV3
+    ? typeof notesV3 === "string" ? notesV3 : JSON.stringify(notesV3)
+    : transcript;
+
+  if (!inputSource || typeof inputSource !== "string") {
+    throw new Error("Notes V3 or Transcript is required.");
   }
 
   const prompt = getSummaryPrompt({
@@ -35,7 +40,7 @@ export async function generateSummary({
 
   const data = await generate({
     prompt,
-    transcript,
+    transcript: inputSource,
     model: "FAST",
     maxTokens: TOKEN_LIMITS.SUMMARY,
   });

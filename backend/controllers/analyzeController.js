@@ -736,13 +736,12 @@ const performLazyGeneration = async (analysis, part) => {
   let generatePromise;
 
   if (part === "flashcards") {
-    // Knowledge Core Priority 1: Use stored knowledgeCore if present.
-    // Knowledge Core Priority 2: Build IN-MEMORY non-persisted fallback knowledgeCore.
-    // Knowledge Core Priority 3: Fall back to raw sections / transcript.
+    const masterNotes   = analysis.masterNotes || null;
     const knowledgeCore = analysis.knowledgeCore || buildKnowledgeCoreFallback(analysis);
     const useSections   = !!(analysis.notesGenerated && analysis.sections?.length);
 
     generatePromise = executeGenerator("flashcards", {
+      masterNotes,
       transcript:    analysis.transcript,
       goal:          analysis.goal,
       language:      analysis.language,
@@ -751,7 +750,10 @@ const performLazyGeneration = async (analysis, part) => {
       knowledgeCore,
     });
   } else {
+    const notesV3 = analysis.masterNotes || (analysis.sections?.length ? analysis.sections : analysis.notes);
+
     generatePromise = runLazyGeneration({
+      notesV3,
       transcript: analysis.transcript,
       goal:       analysis.goal,
       language:   analysis.language,
