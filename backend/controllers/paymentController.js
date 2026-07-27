@@ -71,6 +71,7 @@ export const createOrder = async (req, res) => {
       amount: plan.price,
       currency: "INR",
       credits: plan.credits,
+      validityDays: plan.validityDays || 30,
       status: "created",
     });
 
@@ -125,7 +126,8 @@ export const verifyPayment = async (req, res) => {
       });
     }
 
-    const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const validityDays = payment.validityDays || 30;
+    const expiry = new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000);
 
     // 🔥 atomic check & update (prevents concurrent double credits)
     const updatedPayment = await Payment.findOneAndUpdate(

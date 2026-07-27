@@ -22,7 +22,7 @@ export const getDashboardStats = async (req, res, next) => {
         })
         .lean(),
 
-      User.findById(userId).select("credits subscriptionPlan").lean(),
+      User.findById(userId).select("credits subscriptionPlan creditsExpiry").lean(),
     ]);
 
     const recentAnalyses = userAnalyses
@@ -36,12 +36,19 @@ export const getDashboardStats = async (req, res, next) => {
       })
       .filter(Boolean);
 
+    const expiry = user?.creditsExpiry ? new Date(user.creditsExpiry) : null;
+    const remainingValidityDays = expiry
+      ? Math.max(0, Math.ceil((expiry - new Date()) / (1000 * 60 * 60 * 24)))
+      : 0;
+
     return res.status(200).json({
       success: true,
       data: {
         totalAnalyses,
         recentAnalyses,
         credits: user?.credits || 0,
+        creditsExpiry: user?.creditsExpiry || null,
+        remainingValidityDays,
         subscription: user?.subscriptionPlan || "free",
       },
     });
@@ -54,7 +61,7 @@ export const getDashboardStats = async (req, res, next) => {
 
 export const getCreditBalance = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id).select("credits").lean();
+    const user = await User.findById(req.user.id).select("credits creditsExpiry").lean();
 
     if (!user) {
       return res.status(404).json({
@@ -63,10 +70,17 @@ export const getCreditBalance = async (req, res, next) => {
       });
     }
 
+    const expiry = user.creditsExpiry ? new Date(user.creditsExpiry) : null;
+    const remainingValidityDays = expiry
+      ? Math.max(0, Math.ceil((expiry - new Date()) / (1000 * 60 * 60 * 24)))
+      : 0;
+
     return res.status(200).json({
       success: true,
       data: {
         credits: user.credits,
+        creditsExpiry: user.creditsExpiry || null,
+        remainingValidityDays,
       },
     });
   } catch (error) {

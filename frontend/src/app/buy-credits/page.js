@@ -364,7 +364,7 @@ export default function BuyCreditsPage() {
                     </div>
                     <div>
                       <h3 className="text-base font-black text-white">{plan.name}</h3>
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mt-0.5">30 days validity</span>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mt-0.5">{plan.validityDays || 30} days validity</span>
                     </div>
                   </div>
 

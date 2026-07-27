@@ -17,6 +17,7 @@ const paymentSchema = new mongoose.Schema(
     currency: String,
 
     credits: Number,
+    validityDays: { type: Number, default: 30 },
 
     status: {
       type: String,

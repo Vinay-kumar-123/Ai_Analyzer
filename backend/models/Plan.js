@@ -17,6 +17,11 @@ const planSchema = new mongoose.Schema(
       required: true,
     },
 
+    validityDays: {
+      type: Number,
+      default: 30,
+    },
+
     isPopular: {
       type: Boolean,
       default: false,
