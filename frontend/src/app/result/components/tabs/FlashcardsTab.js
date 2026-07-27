@@ -28,7 +28,7 @@
  * ============================================================================
  */
 
-import { useReducer, useEffect, useCallback, useRef } from "react";
+import { useReducer, useEffect, useMemo ,useCallback, useRef } from "react";
 import {
   Layers,
   ChevronLeft,

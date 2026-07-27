@@ -35,7 +35,7 @@ const validateTranscript = (transcript) => {
   if (trimmed.length > MAX_TRANSCRIPT_CHARS) throw new Error(MESSAGES.TRANSCRIPT_TOO_LARGE);
 };
 
-// ─── Transcript fetch (youtube-transcript only, with resiliencies) ────────────
+// ─── Transcript fetch (youtube-transcript only, with resiliencies & logging) ──
 export const getTranscript = async (youtubeUrl, maxRetries = 3, targetLang = null) => {
   const videoId = extractVideoId(youtubeUrl);
 
@@ -52,6 +52,10 @@ export const getTranscript = async (youtubeUrl, maxRetries = 3, targetLang = nul
     "en",
     "hi",
   ].filter((v, i, a) => v !== null && a.indexOf(v) === i);
+
+  console.log(
+    `[TRANSCRIPT_DISCOVERY] Extracting captions for videoId: "${videoId}" | Target lang: "${targetLang || "auto"}" | Candidate tracks: ${JSON.stringify(langConfigs)}`,
+  );
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     for (const langConfig of langConfigs) {
@@ -78,9 +82,17 @@ export const getTranscript = async (youtubeUrl, maxRetries = 3, targetLang = nul
 
         validateTranscript(fullText);
 
+        console.log(
+          `[TRANSCRIPT_SUCCESS] Provider: youtube-transcript | Lang config: "${langConfig || "auto"}" | Snippet count: ${transcript.length} | Total length: ${fullText.length} chars`,
+        );
+
         return fullText;
       } catch (error) {
         lastError = error;
+
+        console.warn(
+          `[TRANSCRIPT_TRACK_ERROR] Attempt ${attempt}/${maxRetries} | Lang: "${langConfig || "auto"}" failed for video "${videoId}": ${error?.message}`,
+        );
 
         const nonRetryable =
           error?.message === MESSAGES.TRANSCRIPT_TOO_LARGE ||
@@ -98,15 +110,14 @@ export const getTranscript = async (youtubeUrl, maxRetries = 3, targetLang = nul
         10000,
       );
       console.warn(
-        `[TRANSCRIPT_RETRY] Attempt ${attempt}/${maxRetries} failed for video ${videoId}. Retrying in ${delay}ms... Error: ${lastError?.message}`,
+        `[TRANSCRIPT_RETRY] Attempt ${attempt}/${maxRetries} failed for video ${videoId}. Retrying in ${delay}ms...`,
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 
   console.error(
-    `[TRANSCRIPT_FAILED] All ${maxRetries} attempts failed for video ${videoId}. Final error:`,
-    lastError?.message,
+    `[TRANSCRIPT_FAILED] All ${maxRetries} attempts failed for videoId: "${videoId}". Exact failure reason: ${lastError?.message}`,
   );
   throw new Error(`Transcript unavailable: ${lastError?.message || "unknown error"}`);
 };

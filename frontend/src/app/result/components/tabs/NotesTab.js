@@ -22,7 +22,7 @@ import { FiBook, FiCopy, FiCheck, FiDownload } from "react-icons/fi";
  * ============================================================================
  */
 
-import { BookOpen, Copy, Download, Check, Sparkles, BookText } from "lucide-react";
+import { BookOpen, Copy, Download, Check, Loader2, Sparkles, BookText } from "lucide-react";
 
 const renderFormattedNotes = (text) => {
   if (!text) return null;
