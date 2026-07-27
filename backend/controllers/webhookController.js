@@ -3,7 +3,6 @@ import Payment from "../models/Payment.js";
 import User from "../models/User.js";
 
 export const razorpayWebhook = async (req, res) => {
-  console.log("🚀 WEBHOOK HIT");
 
   try {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -16,14 +15,13 @@ export const razorpayWebhook = async (req, res) => {
       .digest("hex");
 
     if (expected !== signature) {
-      console.log("❌ Webhook signature mismatch");
+      
       return res.status(400).send("Invalid signature");
     }
 
     // 🔥 parse AFTER signature verify
     const event = JSON.parse(req.body.toString());
 
-    console.log("📩 WEBHOOK EVENT:", event.event);
 
     // ---------------- HANDLE EVENT ----------------
     if (event.event === "payment.captured") {
@@ -35,12 +33,12 @@ export const razorpayWebhook = async (req, res) => {
       const payment = await Payment.findOne({ orderId });
 
       if (!payment) {
-        console.log("⚠️ Payment not found");
+        
         return res.json({ ok: true });
       }
 
       if (payment.isCredited) {
-        console.log("⚠️ Already credited");
+        
         return res.json({ ok: true });
       }
 
@@ -64,7 +62,7 @@ export const razorpayWebhook = async (req, res) => {
       );
 
       if (!updatedPayment) {
-        console.log("⚠️ Payment already credited concurrently or not found");
+        
         return res.json({ ok: true });
       }
 
@@ -85,7 +83,7 @@ export const razorpayWebhook = async (req, res) => {
             },
           }
         );
-        console.log("🎉 Credits added via webhook");
+        
       } catch (userUpdateError) {
         // 🔥 Rollback state to allow subsequent retries/webhooks
         await Payment.updateOne(
@@ -99,7 +97,7 @@ export const razorpayWebhook = async (req, res) => {
     res.json({ ok: true });
 
   } catch (err) {
-    console.error("❌ Webhook Error:", err);
+    
     res.status(500).send("Webhook failed");
   }
 };

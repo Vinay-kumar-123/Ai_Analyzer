@@ -317,10 +317,12 @@ export const createYoutubeAnalysis = async (req, res, next) => {
       try {
         video = await getVideoMeta(normalizedUrl);
       } catch (err) {
+        console.error(`[METADATA_LOOKUP_FAILED] URL: "${normalizedUrl}" | Error: ${err.message}`);
         throw new Error(MESSAGES.VIDEO_UNAVAILABLE);
       }
 
       if (!video?.duration) {
+        console.error(`[METADATA_DURATION_MISSING] URL: "${normalizedUrl}" | Video payload:`, video);
         throw new Error(MESSAGES.VIDEO_UNAVAILABLE);
       }
 
