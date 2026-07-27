@@ -87,11 +87,6 @@ export const verifyPayment = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
       req.body;
-    console.log("ORDER:", razorpay_order_id);
-    console.log("PAYMENT:", razorpay_payment_id);
-    console.log("SIGNATURE:", razorpay_signature);
-
-    console.log("SECRET:", process.env.RAZORPAY_KEY_SECRET);
     // 🔥 signature verify
     const body = `${razorpay_order_id}|${razorpay_payment_id}`;
 
