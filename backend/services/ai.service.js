@@ -7,6 +7,7 @@ import {
   MESSAGES,
 } from "../config/limits.js";
 
+import { generateNotes } from "../generators/notes.generator.js";
 import { generateSummary } from "../generators/summary.generator.js";
 import { executeGenerator } from "../generators/generator.registry.js";
 import { extractVideoId } from "../utils/youtubeMeta.js";
