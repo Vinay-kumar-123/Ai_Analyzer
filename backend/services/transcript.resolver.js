@@ -1,30 +1,22 @@
 /**
  * ============================================================================
  * AI Learning OS
- * Transcript Resolver V2 — Multi-Provider Production Metrics Edition
+ * Transcript Resolver V2 — Optimized Production Edition
  * ----------------------------------------------------------------------------
  * Dedicated transcript extraction & resilience service.
  *
- * Architecture & Features:
- *   - Pluggable Provider Interface (`BaseTranscriptProvider`) with Circuit Breaker readiness
- *   - Provider Registry (`TranscriptProviderRegistry`) decoupling resolver from concrete providers
- *   - Enhanced Provider Health Metrics (`ProviderHealthTracker`):
- *       - totalRequests, successCount, failureCount
- *       - captchaCount, rateLimit429Count
- *       - successRate, failureRate, captchaRate, rateLimit429Rate
- *       - averageLatencyMs, averageTranscriptSizeChars
- *       - retryAttemptsCount, retrySuccessCount, retrySuccessRate
- *   - Two-Tier Failure Classifier (`IS_PERMANENT` vs `IS_TEMPORARY`)
- *   - Exponential Backoff with Jitter for temporary failure retries
- *   - Diagnostic Metadata Layer via YouTube Data API v3 (post-failure advisory check)
- *   - Correlation ID (`analysisId`) tracing across all log lines
- *   - Strict backward compatibility for all public exports
+ * Fixed Production Behaviors:
+ *   1. User-Request-Level Metrics: Metrics track actual user requests (bounded 0-100%).
+ *      Language sub-attempts are NOT counted as independent user requests.
+ *   2. CAPTCHA / 429 Short-Circuit: Language loop breaks immediately on CAPTCHA / 429.
+ *      Prevents redundant requests on IP-level blocks (saves 66-75% HTTP traffic).
+ *   3. Clean Provider Attempt Sequencing: Backoff + jitter runs once per provider attempt.
  *
  * ARCHITECTURE RULES:
  *   - Primary Provider: youtube-transcript
- *   - Future Providers (Groq Whisper, Deepgram, Supadata): Pluggable via Registry
+ *   - Pluggable Registry: BaseTranscriptProvider & TranscriptProviderRegistry
  *   - Data API v3: Diagnostic metadata ONLY (never provides transcript text)
- *   - No DB schema changes, no frontend changes, no API payload changes
+ *   - Zero schema, prompt, worker, queue, or API response changes
  * ============================================================================
  */
 
@@ -79,7 +71,7 @@ export class ProviderHealthTracker {
     this.retryAttemptsCount++;
   }
 
-  recordSuccess(latencyMs, transcriptLength, attempt = 1) {
+  recordSuccess(latencyMs, transcriptLength, attemptsMade = 1) {
     this.successCount++;
     this.totalLatencyMs += latencyMs;
     this.averageLatencyMs = Math.round(this.totalLatencyMs / this.successCount);
@@ -89,7 +81,7 @@ export class ProviderHealthTracker {
       this.averageTranscriptSizeChars = Math.round(this.totalTranscriptChars / this.successCount);
     }
 
-    if (attempt > 1) {
+    if (attemptsMade > 1) {
       this.retrySuccessCount++;
     }
   }
@@ -136,7 +128,6 @@ export class ProviderHealthTracker {
 
 /**
  * Base Abstract Provider Class.
- * All transcript extraction providers extend this base interface.
  */
 export class BaseTranscriptProvider {
   constructor(name) {
@@ -152,20 +143,13 @@ export class BaseTranscriptProvider {
   }
 
   isConfigured() {
-    return true; // Default to true unless environment keys are missing
+    return true;
   }
 
-  /**
-   * Circuit Breaker Compatibility Interface.
-   * Returns true if provider is healthy and available to accept requests.
-   */
   isAvailable() {
     return this.isConfigured();
   }
 
-  /**
-   * Abstract fetch method — must be implemented by subclasses.
-   */
   async fetch(videoId, options = {}) {
     throw new Error("fetch() must be implemented by transcript provider subclass.");
   }
@@ -184,44 +168,32 @@ export class YoutubeTranscriptProvider extends BaseTranscriptProvider {
     super("youtube-transcript");
   }
 
+  /**
+   * Executes ONE language candidate fetch without side-effecting request counts.
+   */
   async fetch(videoId, { langConfig, attempt = 1, timeoutMs = TRANSCRIPT_FETCH_TIMEOUT_MS } = {}) {
     const fetchConfig = langConfig ? { lang: langConfig } : undefined;
     const langLabel   = langConfig || "auto";
-    const startMs     = Date.now();
 
-    if (attempt === 1) {
-      this.healthTracker.recordRequest();
-    } else {
-      this.healthTracker.recordRetryAttempt();
+    const snippets = await withTimeout(
+      YoutubeTranscript.fetchTranscript(videoId, fetchConfig),
+      timeoutMs,
+      `youtube-transcript fetch (attempt ${attempt}, lang: ${langLabel})`,
+    );
+
+    if (!Array.isArray(snippets) || snippets.length === 0) {
+      throw new Error("Transcript array empty");
     }
 
-    try {
-      const snippets = await withTimeout(
-        YoutubeTranscript.fetchTranscript(videoId, fetchConfig),
-        timeoutMs,
-        `youtube-transcript fetch (attempt ${attempt}, lang: ${langLabel})`,
-      );
+    const text = snippets
+      .map((item) => (item.text || "").trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\[.*?\]/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
 
-      if (!Array.isArray(snippets) || snippets.length === 0) {
-        throw new Error("Transcript array empty");
-      }
-
-      const text = snippets
-        .map((item) => (item.text || "").trim())
-        .filter(Boolean)
-        .join(" ")
-        .replace(/\[.*?\]/g, "")
-        .replace(/\s{2,}/g, " ")
-        .trim();
-
-      const elapsed = Date.now() - startMs;
-      this.healthTracker.recordSuccess(elapsed, text.length, attempt);
-
-      return { text, snippetCount: snippets.length, langUsed: langLabel };
-    } catch (error) {
-      this.healthTracker.recordFailure(error?.message);
-      throw error;
-    }
+    return { text, snippetCount: snippets.length, langUsed: langLabel };
   }
 }
 
@@ -261,7 +233,7 @@ export const globalProviderRegistry = new TranscriptProviderRegistry();
 globalProviderRegistry.register(new YoutubeTranscriptProvider());
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. PURE UTILITIES & VALIDATORS (Preserved Export Signatures)
+// 4. PURE UTILITIES & VALIDATORS
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const validateVideoId = (videoId) => {
@@ -382,8 +354,19 @@ export const verifyVideoViaDataApi = async (videoId, analysisId = null) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 6. TWO-TIER FAILURE CLASSIFIER
+// 6. TWO-TIER FAILURE CLASSIFIER & CAPTCHA DETECTOR
 // ─────────────────────────────────────────────────────────────────────────────
+
+export const isCaptchaOrRateLimitError = (error) => {
+  const lowerMsg = String(error?.message || "").toLowerCase();
+  return (
+    lowerMsg.includes("captcha") ||
+    lowerMsg.includes("429") ||
+    lowerMsg.includes("too many requests") ||
+    lowerMsg.includes("bot") ||
+    lowerMsg.includes("rate")
+  );
+};
 
 export const classifyFailure = (lastError, metadata) => {
   const errMsg = lastError?.message || "";
@@ -412,19 +395,14 @@ export const classifyFailure = (lastError, metadata) => {
     }
   }
 
-  // Temporary failure checks (rate limit, captcha, network, HTTP 429/5xx)
-  const lowerMsg = errMsg.toLowerCase();
-  if (
-    lowerMsg.includes("timed out")         ||
-    lowerMsg.includes("too many requests") ||
-    lowerMsg.includes("rate")              ||
-    lowerMsg.includes("network")           ||
-    lowerMsg.includes("econnreset")        ||
-    lowerMsg.includes("fetch failed")      ||
-    lowerMsg.includes("captcha")           ||
-    lowerMsg.includes("429")               ||
-    lowerMsg.includes("500")               ||
-    lowerMsg.includes("503")
+  // Temporary failure checks
+  if (isCaptchaOrRateLimitError(lastError) ||
+      errMsg.toLowerCase().includes("timed out") ||
+      errMsg.toLowerCase().includes("network")   ||
+      errMsg.toLowerCase().includes("econnreset")||
+      errMsg.toLowerCase().includes("fetch failed")||
+      errMsg.toLowerCase().includes("500")       ||
+      errMsg.toLowerCase().includes("503")
   ) {
     return {
       category:    "provider_transient",
@@ -473,6 +451,9 @@ export const resolveTranscript = async (
   for (let providerIdx = 0; providerIdx < availableProviders.length; providerIdx++) {
     const provider = availableProviders[providerIdx];
     const providerName = provider.getName();
+    
+    // RECORD REQUEST EXACTLY ONCE PER USER REQUEST PER PROVIDER
+    provider.healthTracker.recordRequest();
 
     if (providerIdx > 0) {
       console.warn(
@@ -484,6 +465,11 @@ export const resolveTranscript = async (
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const attemptStart = Date.now();
+      let isBlockedByCaptchaOr429 = false;
+
+      if (attempt > 1) {
+        provider.healthTracker.recordRetryAttempt();
+      }
 
       for (const langConfig of langCandidates) {
         const langLabel = langConfig || "auto";
@@ -498,6 +484,10 @@ export const resolveTranscript = async (
           validateTranscriptText(result.text);
 
           const elapsedMs = Date.now() - startTime;
+
+          // RECORD SUCCESS EXACTLY ONCE FOR THE USER REQUEST
+          provider.healthTracker.recordSuccess(elapsedMs, result.text.length, attempt);
+
           console.log(
             `[TRANSCRIPT:SUCCESS] | videoId: "${validId}"${correlationTag}` +
             ` | provider: "${providerName}" | language: "${result.langUsed}"` +
@@ -505,7 +495,7 @@ export const resolveTranscript = async (
             ` | transcriptLength: ${result.text.length} | elapsedMs: ${elapsedMs}`,
           );
 
-          // Emit comprehensive production health metrics log
+          // Log provider health metrics
           console.log(
             `[TRANSCRIPT:METRICS]${correlationTag} | metrics: ${JSON.stringify(provider.getMetrics())}`,
           );
@@ -513,7 +503,6 @@ export const resolveTranscript = async (
           return result.text;
         } catch (error) {
           lastError = error;
-
           const failure = classifyFailure(error, null);
           const elapsedMs = Date.now() - attemptStart;
 
@@ -525,13 +514,10 @@ export const resolveTranscript = async (
             ` | elapsedMs: ${elapsedMs}`,
           );
 
-          // Log provider health metrics after failure
-          console.log(
-            `[TRANSCRIPT:METRICS]${correlationTag} | metrics: ${JSON.stringify(provider.getMetrics())}`,
-          );
-
           // PERMANENT FAILURE: Fast-fail immediately (no retries, no provider switch)
           if (failure.isPermanent) {
+            provider.healthTracker.recordFailure(error?.message);
+
             console.error(
               `[TRANSCRIPT:FAILED] | videoId: "${validId}"${correlationTag}` +
               ` | provider: "${providerName}" | category: "${failure.category}"` +
@@ -539,10 +525,21 @@ export const resolveTranscript = async (
             );
             throw new Error(failure.userMessage);
           }
+
+          // CAPTCHA / 429 SHORT-CIRCUIT: Stop language candidate loop immediately!
+          if (isCaptchaOrRateLimitError(error)) {
+            console.warn(
+              `[TRANSCRIPT:CAPTCHA_SHORT_CIRCUIT] | videoId: "${validId}"${correlationTag}` +
+              ` | provider: "${providerName}" | language: "${langLabel}"` +
+              ` | reason: "CAPTCHA/429 detected — stopping remaining language candidates for this attempt"`,
+            );
+            isBlockedByCaptchaOr429 = true;
+            break; // Stop trying en, hi, etc.
+          }
         }
       }
 
-      // Exponential Backoff with Jitter for temporary failures before next attempt
+      // Exponential Backoff with Jitter for temporary failures before next provider attempt
       if (attempt < maxRetries) {
         const jitter = Math.floor(Math.random() * 500);
         const delay  = Math.min(1000 * Math.pow(2, attempt - 1) + jitter, 10_000);
@@ -556,6 +553,13 @@ export const resolveTranscript = async (
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
+
+    // Record failure ONCE for this provider after all retries are exhausted
+    provider.healthTracker.recordFailure(lastError?.message);
+
+    console.log(
+      `[TRANSCRIPT:METRICS]${correlationTag} | metrics: ${JSON.stringify(provider.getMetrics())}`,
+    );
   }
 
   // ── All Providers & Retries Exhausted ───────────────────────────────────────
