@@ -1,14 +1,19 @@
 /**
  * ============================================================================
  * AI Learning OS
- * Transcript Resolver V2 — Multi-Provider Enterprise Edition
+ * Transcript Resolver V2 — Multi-Provider Production Metrics Edition
  * ----------------------------------------------------------------------------
  * Dedicated transcript extraction & resilience service.
  *
  * Architecture & Features:
- *   - Provider Interface (`BaseTranscriptProvider`) with Circuit Breaker readiness
+ *   - Pluggable Provider Interface (`BaseTranscriptProvider`) with Circuit Breaker readiness
  *   - Provider Registry (`TranscriptProviderRegistry`) decoupling resolver from concrete providers
- *   - Provider Health Metrics (`ProviderHealthTracker`: successCount, failureCount, avgLatency, lastFailure)
+ *   - Enhanced Provider Health Metrics (`ProviderHealthTracker`):
+ *       - totalRequests, successCount, failureCount
+ *       - captchaCount, rateLimit429Count
+ *       - successRate, failureRate, captchaRate, rateLimit429Rate
+ *       - averageLatencyMs, averageTranscriptSizeChars
+ *       - retryAttemptsCount, retrySuccessCount, retrySuccessRate
  *   - Two-Tier Failure Classifier (`IS_PERMANENT` vs `IS_TEMPORARY`)
  *   - Exponential Backoff with Jitter for temporary failure retries
  *   - Diagnostic Metadata Layer via YouTube Data API v3 (post-failure advisory check)
@@ -17,7 +22,7 @@
  *
  * ARCHITECTURE RULES:
  *   - Primary Provider: youtube-transcript
- *   - Provider 2 Slot: Pluggable interface (ready for future paid/Whisper providers)
+ *   - Future Providers (Groq Whisper, Deepgram, Supadata): Pluggable via Registry
  *   - Data API v3: Diagnostic metadata ONLY (never provides transcript text)
  *   - No DB schema changes, no frontend changes, no API payload changes
  * ============================================================================
@@ -45,38 +50,84 @@ const withTimeout = (promise, ms, label = "Operation") => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. PROVIDER INTERFACE & HEALTH METRICS TRACKER
+// 1. PROVIDER INTERFACE & PRODUCTION HEALTH METRICS TRACKER
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class ProviderHealthTracker {
   constructor(providerName) {
     this.providerName = providerName;
+    this.totalRequests = 0;
     this.successCount = 0;
     this.failureCount = 0;
+    this.captchaCount = 0;
+    this.rateLimit429Count = 0;
     this.totalLatencyMs = 0;
     this.averageLatencyMs = 0;
+    this.totalTranscriptChars = 0;
+    this.averageTranscriptSizeChars = 0;
+    this.retryAttemptsCount = 0;
+    this.retrySuccessCount = 0;
     this.lastFailureReason = null;
     this.lastFailureTimestamp = null;
   }
 
-  recordSuccess(latencyMs) {
+  recordRequest() {
+    this.totalRequests++;
+  }
+
+  recordRetryAttempt() {
+    this.retryAttemptsCount++;
+  }
+
+  recordSuccess(latencyMs, transcriptLength, attempt = 1) {
     this.successCount++;
     this.totalLatencyMs += latencyMs;
     this.averageLatencyMs = Math.round(this.totalLatencyMs / this.successCount);
+
+    if (transcriptLength && typeof transcriptLength === "number") {
+      this.totalTranscriptChars += transcriptLength;
+      this.averageTranscriptSizeChars = Math.round(this.totalTranscriptChars / this.successCount);
+    }
+
+    if (attempt > 1) {
+      this.retrySuccessCount++;
+    }
   }
 
   recordFailure(reason) {
     this.failureCount++;
     this.lastFailureReason = reason || "Unknown error";
     this.lastFailureTimestamp = new Date().toISOString();
+
+    const lower = String(reason || "").toLowerCase();
+    if (lower.includes("captcha") || lower.includes("bot")) {
+      this.captchaCount++;
+    }
+    if (lower.includes("429") || lower.includes("too many requests") || lower.includes("rate")) {
+      this.rateLimit429Count++;
+    }
   }
 
   getMetrics() {
+    const total = this.totalRequests || (this.successCount + this.failureCount) || 1;
+    const retryTotal = this.retryAttemptsCount || 1;
+
     return {
       provider: this.providerName,
+      totalRequests: this.totalRequests,
       successCount: this.successCount,
       failureCount: this.failureCount,
+      captchaCount: this.captchaCount,
+      rateLimit429Count: this.rateLimit429Count,
+      successRatePct: parseFloat(((this.successCount / total) * 100).toFixed(2)),
+      failureRatePct: parseFloat(((this.failureCount / total) * 100).toFixed(2)),
+      captchaRatePct: parseFloat(((this.captchaCount / total) * 100).toFixed(2)),
+      rateLimit429RatePct: parseFloat(((this.rateLimit429Count / total) * 100).toFixed(2)),
       averageLatencyMs: this.averageLatencyMs,
+      averageTranscriptSizeChars: this.averageTranscriptSizeChars,
+      retryAttemptsCount: this.retryAttemptsCount,
+      retrySuccessCount: this.retrySuccessCount,
+      retrySuccessRatePct: parseFloat(((this.retrySuccessCount / retryTotal) * 100).toFixed(2)),
       lastFailureReason: this.lastFailureReason,
       lastFailureTimestamp: this.lastFailureTimestamp,
     };
@@ -138,6 +189,12 @@ export class YoutubeTranscriptProvider extends BaseTranscriptProvider {
     const langLabel   = langConfig || "auto";
     const startMs     = Date.now();
 
+    if (attempt === 1) {
+      this.healthTracker.recordRequest();
+    } else {
+      this.healthTracker.recordRetryAttempt();
+    }
+
     try {
       const snippets = await withTimeout(
         YoutubeTranscript.fetchTranscript(videoId, fetchConfig),
@@ -158,7 +215,7 @@ export class YoutubeTranscriptProvider extends BaseTranscriptProvider {
         .trim();
 
       const elapsed = Date.now() - startMs;
-      this.healthTracker.recordSuccess(elapsed);
+      this.healthTracker.recordSuccess(elapsed, text.length, attempt);
 
       return { text, snippetCount: snippets.length, langUsed: langLabel };
     } catch (error) {
@@ -241,10 +298,6 @@ export const validateTranscriptText = (text) => {
   if (len > MAX_TRANSCRIPT_CHARS) throw new Error(MESSAGES.TRANSCRIPT_TOO_LARGE);
 };
 
-/**
- * Backward-compatible single fetch attempt function.
- * Wraps the primary registered provider.
- */
 export const fetchTranscriptAttempt = async (
   videoId,
   langConfig,
@@ -452,7 +505,7 @@ export const resolveTranscript = async (
             ` | transcriptLength: ${result.text.length} | elapsedMs: ${elapsedMs}`,
           );
 
-          // Log provider health metrics periodically
+          // Emit comprehensive production health metrics log
           console.log(
             `[TRANSCRIPT:METRICS]${correlationTag} | metrics: ${JSON.stringify(provider.getMetrics())}`,
           );
@@ -470,6 +523,11 @@ export const resolveTranscript = async (
             ` | attempt: ${attempt}/${maxRetries} | failureCategory: "${failure.category}"` +
             ` | isPermanent: ${failure.isPermanent} | failureReason: "${error?.message}"` +
             ` | elapsedMs: ${elapsedMs}`,
+          );
+
+          // Log provider health metrics after failure
+          console.log(
+            `[TRANSCRIPT:METRICS]${correlationTag} | metrics: ${JSON.stringify(provider.getMetrics())}`,
           );
 
           // PERMANENT FAILURE: Fast-fail immediately (no retries, no provider switch)
