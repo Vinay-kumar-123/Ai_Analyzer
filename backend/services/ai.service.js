@@ -27,22 +27,29 @@ const validateTranscript = (transcript) => {
 };
 
 // ─── Transcript fetch ─────────────────────────────────────────────────────────
-// Delegates to transcript.resolver.js — public signature unchanged.
-// youtube-transcript remains the only extraction library.
-export const getTranscript = async (youtubeUrl, maxRetries = 3, targetLang = null) => {
+// Delegates to transcript.resolver.js — public signature backward-compatible.
+// Accepts optional options object (e.g. { analysisId }) for correlation tracing.
+export const getTranscript = async (youtubeUrl, maxRetries = 3, targetLang = null, options = {}) => {
   const videoId = extractVideoId(youtubeUrl);
   if (!videoId) throw new Error(MESSAGES.INVALID_URL);
-  return resolveTranscript(videoId, { maxRetries, targetLang });
+  
+  // Extract analysisId if passed in options or as 4th positional argument
+  const analysisId = typeof options === "string" ? options : options?.analysisId || null;
+  return resolveTranscript(videoId, { maxRetries, targetLang, analysisId });
 };
 
 // ─── Initial analysis (Master Notes V3 Pipeline) ─────────────────────────────
+// Supports optional `existingTranscript` to decouple transcript retrieval retry domain
+// from AI generation retry domain.
 export const runInitialAnalysis = async ({
   youtubeUrl,
   goal = "student",
   language = "english",
+  existingTranscript = null,
+  analysisId = null,
 }) => {
-  // Step 1: Transcript fetched EXACTLY ONCE
-  const transcript = await getTranscript(youtubeUrl, 3, language);
+  // Step 1: Reuse existing transcript if provided, otherwise fetch EXACTLY ONCE
+  const transcript = existingTranscript || (await getTranscript(youtubeUrl, 3, language, { analysisId }));
 
   // Step 2: Generate Master Notes V3 (Canonical Knowledge Base)
   const notesResult = await generateNotes({ transcript, goal, language });
