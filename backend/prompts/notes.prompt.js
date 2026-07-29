@@ -1,4 +1,20 @@
 /**
+ * @legacy
+ * ============================================================================
+ * This file is currently UNUSED by the active Notes generation pipeline.
+ *
+ * The active pipeline uses:
+ *   - chunk.prompt.js      (via chunk.generator.js — extracts chunk-level memory)
+ *   - synthesis.prompt.js  (via synthesis.generator.js — synthesises final notes)
+ *
+ * Do NOT delete this file.
+ * Do NOT use this file in new code without an architectural review.
+ * Retained for historical reference only.
+ * Phase 1A: 2026-07-29
+ * ============================================================================
+ */
+
+/**
  * ============================================================================
  * AI Learning OS
  * Premium Notes Prompt
