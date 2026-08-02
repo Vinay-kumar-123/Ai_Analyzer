@@ -368,6 +368,55 @@ export const isCaptchaOrRateLimitError = (error) => {
   );
 };
 
+/**
+ * Detects permanent provider failures that must never be retried.
+ *
+ * Patterns are matched against the raw error message text thrown by
+ * youtube-transcript (or any future provider). A match means the failure
+ * is structural — no amount of retrying, language switching, or backoff
+ * will produce a transcript for this video.
+ *
+ * Categories covered:
+ *   - Captions / transcript explicitly disabled by the uploader
+ *   - Video deleted, removed, or no longer available
+ *   - Video set to private
+ *   - Members-only content requiring channel membership
+ *   - Age-restricted content requiring sign-in
+ *
+ * Pure function — no I/O, no side effects.
+ */
+export const isPermanentProviderError = (error) => {
+  const lower = String(error?.message || "").toLowerCase();
+  return (
+    // ── Captions / transcript disabled ──────────────────────────────────────
+    lower.includes("transcript is disabled")         ||
+    lower.includes("transcripts are disabled")       ||
+    lower.includes("subtitles are disabled")         ||
+    lower.includes("no transcript is available")     ||
+    lower.includes("no transcripts are available")   ||
+    lower.includes("could not find any transcripts") ||
+    lower.includes("captions are not available")     ||
+    lower.includes("captions not available")         ||
+    // ── Video state — permanently unavailable ───────────────────────────────
+    lower.includes("video unavailable")              ||
+    lower.includes("this video is unavailable")      ||
+    lower.includes("video has been removed")         ||
+    lower.includes("no longer available")            ||
+    lower.includes("video is no longer")             ||
+    // ── Access restrictions — private / members-only ────────────────────────
+    lower.includes("private video")                  ||
+    lower.includes("this video is private")          ||
+    lower.includes("members only")                   ||
+    lower.includes("members-only")                   ||
+    lower.includes("join this channel")              ||
+    // ── Age restriction ──────────────────────────────────────────────────────
+    lower.includes("age-restricted")                 ||
+    lower.includes("age restricted")                 ||
+    lower.includes("confirm your age")               ||
+    lower.includes("sign in to confirm your age")
+  );
+};
+
 export const classifyFailure = (lastError, metadata) => {
   const errMsg = lastError?.message || "";
 
@@ -382,7 +431,18 @@ export const classifyFailure = (lastError, metadata) => {
     return { category: "invalid_url", isPermanent: true, userMessage: MESSAGES.INVALID_URL };
   }
 
-  // Diagnostic metadata checks
+  // Provider-reported permanent failures (raw error text from youtube-transcript).
+  // Checked here — before metadata — so the resolver fast-fails on the very first
+  // attempt without waiting for all retries to exhaust.
+  if (isPermanentProviderError(lastError)) {
+    return {
+      category:    "provider_permanent",
+      isPermanent: true,
+      userMessage: MESSAGES.VIDEO_UNAVAILABLE,
+    };
+  }
+
+  // Diagnostic metadata checks (from YouTube Data API v3 — post-failure only)
   if (metadata) {
     if (!metadata.exists) {
       return { category: "video_unavailable", isPermanent: true, userMessage: MESSAGES.VIDEO_UNAVAILABLE };
@@ -519,9 +579,9 @@ export const resolveTranscript = async (
             provider.healthTracker.recordFailure(error?.message);
 
             console.error(
-              `[TRANSCRIPT:FAILED] | videoId: "${validId}"${correlationTag}` +
+              `[TRANSCRIPT:PERMANENT_FAILURE] | videoId: "${validId}"${correlationTag}` +
               ` | provider: "${providerName}" | category: "${failure.category}"` +
-              ` | isPermanent: true | totalElapsedMs: ${Date.now() - startTime}`,
+              ` | failureReason: "${error?.message}" | totalElapsedMs: ${Date.now() - startTime}`,
             );
             throw new Error(failure.userMessage);
           }
