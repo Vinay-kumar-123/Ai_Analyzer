@@ -10,7 +10,7 @@ import User from "../models/User.js";
 import UserAnalysis from "../models/UserAnalysis.js";
 import connectDB from "../config/db.js";
 
-import { runInitialAnalysis } from "../services/ai.service.js";
+import { runInitialAnalysis, getTranscript } from "../services/ai.service.js";
 
 import {
   safeString,
@@ -172,16 +172,45 @@ const processJob = async (job) => {
     error: "",
   });
 
-  // Run initial analysis with retry
+  // ── Phase 1: Transcript fetch (independent retry domain) ─────────────────────
+  // Fetched EXACTLY ONCE per job. Cached in job-local memory only.
+  // If this fails, the job terminates immediately — no AI work is wasted.
+  // Retries within runInitialAnalysis (Phase 2) reuse this string directly
+  // and never contact YouTube again.
+  let cachedTranscript;
+
+  try {
+    console.log(`📡 Fetching transcript | analysisId: ${analysisId}`);
+    cachedTranscript = await getTranscript(youtubeUrl, 3, language, { analysisId });
+    console.log(`📡 Transcript ready | analysisId: ${analysisId} | length: ${cachedTranscript.length}`);
+  } catch (transcriptErr) {
+    // transcript.resolver.js already exhausted its internal retries with backoff.
+    // Any error here is terminal for this job.
+    console.warn(`🚫 Transcript fetch failed | analysisId: ${analysisId} | reason: ${transcriptErr.message}`);
+    await Analysis.findByIdAndUpdate(analysisId, {
+      $set: {
+        status:      "failed",
+        progress:    0,
+        error:       transcriptErr.message,
+        completedAt: new Date(),
+      },
+    });
+    return { success: false, reason: "transcript_failed", message: transcriptErr.message };
+  }
+
+  // ── Phase 2: AI generation retry loop (transcript-free) ───────────────────────
+  // cachedTranscript is passed on every attempt.
+  // runInitialAnalysis skips getTranscript() entirely when existingTranscript is provided.
+  // Zero YouTube requests occur during AI retries.
   let initialResult;
   let lastError;
 
   for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
     try {
-      console.log(`🧠 Initial analysis attempt ${attempt}/${MAX_RETRY}`);
+      console.log(`🧠 AI generation attempt ${attempt}/${MAX_RETRY} | analysisId: ${analysisId}`);
 
       initialResult = await withTimeout(
-        runInitialAnalysis({ youtubeUrl, goal, language }),
+        runInitialAnalysis({ youtubeUrl, goal, language, existingTranscript: cachedTranscript, analysisId }),
         AI_PIPELINE_TIMEOUT_MS,
         "Initial analysis pipeline",
       );
@@ -194,16 +223,16 @@ const processJob = async (job) => {
         console.warn(`🚫 Non-retryable: ${err.message}`);
         await Analysis.findByIdAndUpdate(analysisId, {
           $set: {
-            status: "failed",
-            progress: 0,
-            error: err.message,
+            status:      "failed",
+            progress:    0,
+            error:       err.message,
             completedAt: new Date(),
           },
         });
         return { success: false, reason: "non_retryable", message: err.message };
       }
 
-      console.warn(`⚠️ Attempt ${attempt} failed: ${err.message}`);
+      console.warn(`⚠️ AI attempt ${attempt} failed: ${err.message}`);
       if (attempt < MAX_RETRY) await new Promise((r) => setTimeout(r, 3000 * attempt));
     }
   }
