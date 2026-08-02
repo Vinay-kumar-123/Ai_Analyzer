@@ -1,11 +1,4 @@
-// ======================================================
-// youtubeMeta.js
-// Multi-Tier YouTube Video Metadata Resolver
-//
-// Tier 1: Official YouTube Data API v3 (when YOUTUBE_API_KEY is configured)
-// Tier 2: YouTube oEmbed API + HTML Duration Extraction
-// Tier 3: youtubei.js (Innertube) Fallback
-// ======================================================
+
 
 import { Innertube } from "youtubei.js";
 

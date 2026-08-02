@@ -11,7 +11,7 @@ await Plan.deleteMany();
 await Plan.insertMany([
   {
     name: "Basic",
-    price: 99,
+    price: 1,
     credits: 30,
     validityDays: 30,
   },
